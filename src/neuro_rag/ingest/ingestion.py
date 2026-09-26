@@ -6,7 +6,6 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import pymupdf
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
@@ -170,14 +169,6 @@ def load_pages(path=PAGES_PATH):
     """Read pages saved by save_pages back as Documents, without touching the PDFs."""
     with Path(path).open(encoding="utf-8") as f:
         return [Document(**json.loads(line)) for line in f if line.strip()]
-
-
-def chunk_pages(pages, chunk_size=768, chunk_overlap=64):
-    """Split pages into token-sized chunks; each chunk keeps its page's metadata."""
-    splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-        chunk_size=chunk_size, chunk_overlap=chunk_overlap
-    )
-    return splitter.split_documents(pages)
 
 
 def main():

@@ -12,3 +12,6 @@ __pycache__/
 venv/
 .pytest_cache/
 .ruff_cache/
+
+# Local planning notes
+advanded_rag_project.txt
