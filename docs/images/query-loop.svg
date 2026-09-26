@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="340" viewBox="0 0 1180 340" role="img" aria-label="Query graph: the question goes to hybrid retrieval, then an LLM grades each chunk. If enough chunks are relevant, the agent generates a cited answer. If not, it rewrites the query and retries, and once retries run out it falls back to web search before generating."><style>
+svg{--bg:#FFFFFF;--surface:#FFFFFF;--ink:#1D1A28;--ink-2:#4A4660;--muted:#77728C;--line:#CFCBDC;--accent:#6B3FA0;--accent-soft:#EFE8F8;--ok:#2E7D5B}
+@media (prefers-color-scheme: dark){svg{--bg:#0D1117;--surface:#161B22;--ink:#ECEAF3;--ink-2:#C3BFD4;--muted:#938EA8;--line:#3B3650;--accent:#B597E6;--accent-soft:#2A2240;--ok:#6CC49A}}
+.bg{fill:var(--bg)}
+.n{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+.n.acc{stroke:var(--accent);fill:var(--accent-soft)}
+.t{fill:var(--ink);font:600 13px -apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.s,.lab,.brt{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.s{fill:var(--muted)} .lab{fill:var(--ink-2)} .lab.acc{fill:var(--accent)} .brt{fill:var(--muted)}
+.e{fill:none;stroke:var(--ink-2);stroke-width:1.4}
+.e.acc{stroke:var(--accent);stroke-width:1.8}
+.head{fill:var(--ink-2)} .head.acc{fill:var(--accent)}
+.built{fill:var(--ok)} .planned{fill:none;stroke:var(--muted);stroke-width:1.3}
+.br{fill:none;stroke:var(--muted);stroke-width:1}
+</style><rect class="bg" width="1180" height="340"/>
+        <defs>
+          <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="a2v" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head acc" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+
+        
+        <g>
+          <rect class="n" x="20" y="120" width="120" height="64" rx="4"/>
+          <text class="t" x="80" y="147" text-anchor="middle">Question</text>
+          <text class="s" x="80" y="166" text-anchor="middle">from the user</text>
+        </g>
+        <g>
+          <rect class="n" x="200" y="120" width="160" height="64" rx="4"/>
+          <circle class="planned" cx="348" cy="132" r="4"/>
+          <text class="t" x="280" y="147" text-anchor="middle">Hybrid retrieve</text>
+          <text class="s" x="280" y="166" text-anchor="middle">Qdrant + BM25, RRF</text>
+        </g>
+        <g>
+          <rect class="n" x="420" y="120" width="160" height="64" rx="4"/>
+          <circle class="planned" cx="568" cy="132" r="4"/>
+          <text class="t" x="500" y="147" text-anchor="middle">Grade chunks</text>
+          <text class="s" x="500" y="166" text-anchor="middle">Claude, yes/no each</text>
+        </g>
+        <g>
+          <path class="n acc" d="M634 152L690 112L746 152L690 192Z"/>
+          <text class="t" x="690" y="149" text-anchor="middle">enough</text>
+          <text class="t" x="690" y="164" text-anchor="middle">relevant?</text>
+        </g>
+        <g>
+          <rect class="n" x="820" y="120" width="160" height="64" rx="4"/>
+          <circle class="planned" cx="968" cy="132" r="4"/>
+          <text class="t" x="900" y="147" text-anchor="middle">Generate</text>
+          <text class="s" x="900" y="166" text-anchor="middle">cites source + page</text>
+        </g>
+        <g>
+          <rect class="n" x="1040" y="120" width="120" height="64" rx="4"/>
+          <circle class="planned" cx="1148" cy="132" r="4"/>
+          <text class="t" x="1100" y="147" text-anchor="middle">Answer</text>
+          <text class="s" x="1100" y="166" text-anchor="middle">+ decision trail</text>
+        </g>
+
+        
+        <g>
+          <rect class="n acc" x="610" y="20" width="160" height="56" rx="4"/>
+          <circle class="planned" cx="758" cy="32" r="4"/>
+          <text class="t" x="690" y="44" text-anchor="middle">Web search</text>
+          <text class="s" x="690" y="63" text-anchor="middle">ddgs + bs4 fetch</text>
+        </g>
+        <g>
+          <rect class="n acc" x="610" y="260" width="160" height="64" rx="4"/>
+          <circle class="planned" cx="758" cy="272" r="4"/>
+          <text class="t" x="690" y="287" text-anchor="middle">Rewrite query</text>
+          <text class="s" x="690" y="306" text-anchor="middle">Claude, expand terms</text>
+        </g>
+
+        
+        <line class="e" x1="140" y1="152" x2="196" y2="152" marker-end="url(#a2)"/>
+        <text class="lab" x="169" y="143" text-anchor="middle">query</text>
+        <line class="e" x1="360" y1="152" x2="416" y2="152" marker-end="url(#a2)"/>
+        <text class="lab" x="389" y="143" text-anchor="middle">top-k</text>
+        <line class="e" x1="580" y1="152" x2="630" y2="152" marker-end="url(#a2)"/>
+        <text class="lab" x="606" y="143" text-anchor="middle">grades</text>
+        <line class="e" x1="746" y1="152" x2="816" y2="152" marker-end="url(#a2)"/>
+        <text class="lab" x="781" y="143" text-anchor="middle">yes</text>
+        <line class="e" x1="980" y1="152" x2="1036" y2="152" marker-end="url(#a2)"/>
+        <text class="lab" x="1009" y="143" text-anchor="middle">cited</text>
+
+        
+        <line class="e acc" x1="690" y1="192" x2="690" y2="256" marker-end="url(#a2v)"/>
+        <text class="lab acc" x="700" y="228">no, retries left</text>
+        <path class="e acc" d="M610 292H280V188" marker-end="url(#a2v)"/>
+        <text class="lab acc" x="445" y="284" text-anchor="middle">new query</text>
+        <line class="e acc" x1="690" y1="112" x2="690" y2="80" marker-end="url(#a2v)"/>
+        <text class="lab acc" x="700" y="100">no, retries used up</text>
+        <path class="e acc" d="M770 48H900V116" marker-end="url(#a2v)"/>
+        <text class="lab acc" x="835" y="40" text-anchor="middle">web text</text>
+      </svg>

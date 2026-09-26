@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="236" viewBox="0 0 1180 236" role="img" aria-label="Ingestion pipeline: PMC search, human review in candidates.csv, download from the PMC S3 bucket into data/raw, then parse and chunk into a Qdrant vector store and a BM25 index."><style>
+svg{--bg:#FFFFFF;--surface:#FFFFFF;--ink:#1D1A28;--ink-2:#4A4660;--muted:#77728C;--line:#CFCBDC;--accent:#6B3FA0;--accent-soft:#EFE8F8;--ok:#2E7D5B}
+@media (prefers-color-scheme: dark){svg{--bg:#0D1117;--surface:#161B22;--ink:#ECEAF3;--ink-2:#C3BFD4;--muted:#938EA8;--line:#3B3650;--accent:#B597E6;--accent-soft:#2A2240;--ok:#6CC49A}}
+.bg{fill:var(--bg)}
+.n{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+.n.acc{stroke:var(--accent);fill:var(--accent-soft)}
+.t{fill:var(--ink);font:600 13px -apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.s,.lab,.brt{font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.s{fill:var(--muted)} .lab{fill:var(--ink-2)} .lab.acc{fill:var(--accent)} .brt{fill:var(--muted)}
+.e{fill:none;stroke:var(--ink-2);stroke-width:1.4}
+.e.acc{stroke:var(--accent);stroke-width:1.8}
+.head{fill:var(--ink-2)} .head.acc{fill:var(--accent)}
+.built{fill:var(--ok)} .planned{fill:none;stroke:var(--muted);stroke-width:1.3}
+.br{fill:none;stroke:var(--muted);stroke-width:1}
+</style><rect class="bg" width="1180" height="236"/>
+        <defs>
+          <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        
+        <path class="br" d="M20 40V34H760V40"/>
+        <text class="brt" x="20" y="24">scripts/collect_corpus.py</text>
+        <path class="br" d="M820 40V34H1160V40"/>
+        <text class="brt" x="820" y="24">src/neuro_rag/ingest + retrieval</text>
+
+        
+        <g>
+          <rect class="n" x="20" y="100" width="140" height="74" rx="4"/>
+          <circle class="built" cx="148" cy="112" r="4"/>
+          <text class="t" x="90" y="128" text-anchor="middle">NCBI E-utilities</text>
+          <text class="s" x="90" y="147" text-anchor="middle">esearch query</text>
+          <text class="s" x="90" y="162" text-anchor="middle">hippocampus·memory</text>
+        </g>
+        <g>
+          <rect class="n" x="220" y="100" width="140" height="74" rx="4"/>
+          <circle class="built" cx="348" cy="112" r="4"/>
+          <text class="t" x="290" y="128" text-anchor="middle">candidates.csv</text>
+          <text class="s" x="290" y="147" text-anchor="middle">human review</text>
+          <text class="s" x="290" y="162" text-anchor="middle">keep = yes | no</text>
+        </g>
+        <g>
+          <rect class="n" x="420" y="100" width="140" height="74" rx="4"/>
+          <circle class="built" cx="548" cy="112" r="4"/>
+          <text class="t" x="490" y="128" text-anchor="middle">PMC OA bucket</text>
+          <text class="s" x="490" y="147" text-anchor="middle">S3 metadata JSON</text>
+          <text class="s" x="490" y="162" text-anchor="middle">md5 verified</text>
+        </g>
+        <g>
+          <rect class="n" x="620" y="100" width="140" height="74" rx="4"/>
+          <circle class="built" cx="748" cy="112" r="4"/>
+          <text class="t" x="690" y="128" text-anchor="middle">data/raw</text>
+          <text class="s" x="690" y="147" text-anchor="middle">54 PDFs</text>
+          <text class="s" x="690" y="162" text-anchor="middle">gitignored</text>
+        </g>
+        <g>
+          <rect class="n" x="820" y="100" width="140" height="74" rx="4"/>
+          <circle class="planned" cx="948" cy="112" r="4"/>
+          <text class="t" x="890" y="128" text-anchor="middle">Parse + chunk</text>
+          <text class="s" x="890" y="147" text-anchor="middle">pypdf, token split</text>
+          <text class="s" x="890" y="162" text-anchor="middle">source·title·page</text>
+        </g>
+        <g>
+          <rect class="n" x="1020" y="52" width="140" height="64" rx="4"/>
+          <circle class="planned" cx="1148" cy="64" r="4"/>
+          <text class="t" x="1090" y="79" text-anchor="middle">Qdrant</text>
+          <text class="s" x="1090" y="98" text-anchor="middle">dense embeddings</text>
+        </g>
+        <g>
+          <rect class="n" x="1020" y="158" width="140" height="64" rx="4"/>
+          <circle class="planned" cx="1148" cy="170" r="4"/>
+          <text class="t" x="1090" y="185" text-anchor="middle">BM25 index</text>
+          <text class="s" x="1090" y="204" text-anchor="middle">keyword, rank_bm25</text>
+        </g>
+
+        
+        <line class="e" x1="160" y1="137" x2="216" y2="137" marker-end="url(#a1)"/>
+        <text class="lab" x="189" y="128" text-anchor="middle">PMC IDs</text>
+        <line class="e" x1="360" y1="137" x2="416" y2="137" marker-end="url(#a1)"/>
+        <text class="lab" x="389" y="128" text-anchor="middle">keep=yes</text>
+        <line class="e" x1="560" y1="137" x2="616" y2="137" marker-end="url(#a1)"/>
+        <text class="lab" x="589" y="128" text-anchor="middle">PDF</text>
+        <line class="e" x1="760" y1="137" x2="816" y2="137" marker-end="url(#a1)"/>
+        <text class="lab" x="789" y="128" text-anchor="middle">pages</text>
+        <path class="e" d="M960 137H990V84H1016" marker-end="url(#a1)"/>
+        <path class="e" d="M990 137V190H1016" marker-end="url(#a1)"/>
+      </svg>
