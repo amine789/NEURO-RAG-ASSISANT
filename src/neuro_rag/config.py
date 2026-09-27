@@ -23,3 +23,6 @@ CHUNK_OVERLAP = 64
 
 # How many BM25 results to keep before fusing with dense search.
 BM25_TOP_K = 20
+
+# Reciprocal rank fusion constant: higher = ranks matter less. 60 is the standard default.
+RRF_K = 60
