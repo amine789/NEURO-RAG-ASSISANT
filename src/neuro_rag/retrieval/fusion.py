@@ -1,5 +1,4 @@
 from collections import defaultdict
-
 from neuro_rag.config import RRF_K
 
 
@@ -16,3 +15,5 @@ def rrf_fuse(*ranked_lists, k=RRF_K):
         for rank, chunk_id in enumerate(ranked, start=1):
             scores[chunk_id] += 1 / (k + rank)
     return sorted(scores.items(), key=lambda item: item[1], reverse=True)
+
+
