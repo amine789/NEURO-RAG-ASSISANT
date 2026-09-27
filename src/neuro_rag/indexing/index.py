@@ -1,5 +1,6 @@
 import re
 from collections import defaultdict
+from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
@@ -8,7 +9,7 @@ from uuid import NAMESPACE_URL, uuid5
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
-from neuro_rag.config import BM25_TOP_K, CHUNK_OVERLAP, CHUNK_SIZE, EMBEDDING_MODEL
+from neuro_rag.config import BM25_TOP_K, CHUNK_OVERLAP, CHUNK_SIZE, EMBEDDING_MODEL, VECTOR_SIZE
 
 
 model = SentenceTransformer(EMBEDDING_MODEL)
@@ -17,31 +18,32 @@ model = SentenceTransformer(EMBEDDING_MODEL)
 def ingest_documents(
     qdrant: QdrantClient,
     collection_name: str,
-    chunks: dict, 
-    vector_size: int,
+    chunks: list[Document],
+    vector_size: int = VECTOR_SIZE,
 ) -> None:
-    """Embed chunks and upsert them into Qdrant with source metadata.
+    """Rebuild the collection from scratch: embed chunks and store them with their metadata.
 
-    Each chunk must have a "content" key, and should include "source"
-    (e.g. a filename) and optional "page" so retrieved hits can later
-    be cited back to a real document instead of just a list position.
+    `chunks` come from chunk_pages(), so each has page_content and metadata with a
+    chunk_id (the point's id) plus pmcid, title, citation and page for citing hits later.
     """
-    if not qdrant.collection_exists(collection_name):
-        qdrant.create_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-        )
-
+    # Full rebuild: chunk IDs change when chunk settings change, so old points would linger.
+    if qdrant.collection_exists(collection_name):
+        qdrant.delete_collection(collection_name)
+    qdrant.create_collection(
+        collection_name=collection_name,
+        vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+    )
+    vectorized_chunks = get_text_embeddings([c.page_content for c in chunks])
     points = [
         PointStruct(
             id=str(uuid5(NAMESPACE_URL, chunk.metadata["chunk_id"])),  # same chunk -> same point id every run
-            vector=get_text_embeddings(chunk.page_content).tolist(),
+            vector= vector.tolist(),
             payload={
                 "content": chunk.page_content,               
                 "metadata": chunk.metadata
             },
         )
-        for chunk in chunks
+         for chunk, vector in zip(chunks, vectorized_chunks)
     ]
     qdrant.upsert(collection_name=collection_name, points=points)
 

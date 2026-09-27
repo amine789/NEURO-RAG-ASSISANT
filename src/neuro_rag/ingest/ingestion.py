@@ -7,10 +7,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import pymupdf
 from langchain_core.documents import Document
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-RAW_DIR = PROJECT_ROOT / "data" / "raw"
-CATALOG_PATH = PROJECT_ROOT / "data" / "candidates.csv"  # written by collect_corpus.py
-PAGES_PATH = PROJECT_ROOT / "data" / "pages.jsonl"
+from neuro_rag.config import CATALOG_PATH, PAGES_PATH, PROJECT_ROOT, RAW_DIR
+
 LIGATURES = {"\ufb01": "fi", "\ufb02": "fl", "\ufb00": "ff", "\ufb03": "ffi", "\ufb04": "ffl"}
 REFERENCES = re.compile(r"(\d+\.?\s*)?(references|bibliography|literature cited)\b", re.I)
 # Sections that can follow a reference list (e.g. Nature: References -> Methods -> Extended Data).
