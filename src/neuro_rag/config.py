@@ -1,7 +1,8 @@
 """Settings shared across the pipeline. Add a setting here when a step starts using it."""
-
+from dotenv import load_dotenv
 from pathlib import Path
-
+from langchain_anthropic import ChatAnthropic
+load_dotenv()
 # Paths. config.py is src/neuro_rag/config.py, so the project root is two folders up.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
@@ -26,3 +27,5 @@ BM25_TOP_K = 20
 
 # Reciprocal rank fusion constant: higher = ranks matter less. 60 is the standard default.
 RRF_K = 60
+
+llm = ChatAnthropic(model="claude-haiku-4-5")
