@@ -4,6 +4,7 @@ from langchain_core.documents import Document
 
 from neuro_rag.config import llm
 
+
 def grade_retrieval_results(
     query: str, results: list[tuple[Document, float]]
 ) -> list[tuple[Document, float]]:
@@ -33,5 +34,7 @@ def grade_retrieval_results(
         match = re.search(r"\[.*\]", response.content, re.DOTALL)
         relevant_indices = json.loads(match.group())
         return [results[i - 1] for i in relevant_indices if 1 <= i <= len(results)]
-    except (json.JSONDecodeError, AttributeError, IndexError):
-        return []  # grading failed
+    except (json.JSONDecodeError, AttributeError, IndexError, TypeError):
+        # Grading failed, not "nothing relevant": keep all results so a bad
+        # response doesn't trigger a needless rewrite or web search.
+        return results
