@@ -29,3 +29,5 @@ BM25_TOP_K = 20
 RRF_K = 60
 
 llm = ChatAnthropic(model="claude-haiku-4-5")
+MIN_RELEVANT=2
+MAX_RETRIES=1

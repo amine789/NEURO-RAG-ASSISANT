@@ -31,7 +31,8 @@ def grade_retrieval_results(
     '''
     response = llm.invoke(prompt)
     try:
-        match = re.search(r"\[.*\]", response.content, re.DOTALL)
+        # First array of numbers only: the model sometimes adds an explanation with "[1] ..." after it
+        match = re.search(r"\[[\d,\s]*\]", response.content)
         relevant_indices = json.loads(match.group())
         return [results[i - 1] for i in relevant_indices if 1 <= i <= len(results)]
     except (json.JSONDecodeError, AttributeError, IndexError, TypeError):

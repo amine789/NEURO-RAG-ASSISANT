@@ -1,13 +1,12 @@
-"""End-to-end check: retrieve -> grade -> generate for a few real questions."""
+"""End-to-end check: run a few real questions through the corrective RAG graph
+and print the path each one takes."""
 from neuro_rag.ingest.ingestion import load_folder, save_pages
-from neuro_rag.indexing.index import get_text_embeddings, ingest_documents, build_bm25, bm25_search, chunk_pages
+from neuro_rag.indexing.index import ingest_documents, chunk_pages
 from neuro_rag.config import RAW_DIR
 from neuro_rag.config import QDRANT_PATH, COLLECTION_NAME, VECTOR_SIZE
-from neuro_rag.retrieval.fusion import rrf_fuse
 from qdrant_client import QdrantClient
-from neuro_rag.generation.generate_answer import generate_answer
 from neuro_rag.retrieval.retrieve import Retriever
-from neuro_rag.grading.grade import grade_retrieval_results
+from neuro_rag.orchestration.agent import build_graph, initial_state
 
 
 if __name__ == "__main__":
@@ -20,13 +19,26 @@ if __name__ == "__main__":
                      chunks,
                      VECTOR_SIZE)
     retriever = Retriever(chunks, qdrant_client)
+    app = build_graph(retriever)
+
     for question in [
-    "Does resistance exercise improve hippocampus-dependent memory?",  # from search_demo
-    "What is the role of dopamine in the striatum?"]:
-        results = retriever.retrieve(question, k=5)            # [(Document, score), ...]
-        graded = grade_retrieval_results(question, results)    # keeps the relevant pairs
-        print(f"\n{question}\n{len(graded)}/{len(results)} chunks relevant\n")
-        print(generate_answer(question, [doc for doc, _ in graded]))
+        "Does resistance exercise improve hippocampus-dependent memory?",  # well covered by the corpus
+        "how does the brain remember places?",  # casual wording: may need a rewrite
+        "How do opioids affect the spinal cord?",  # off-topic: should end in web search
+    ]:
+        print(f"\n{'=' * 80}\n{question}\n")
+        # stream() yields one {node: state update} per step, so we can print the path
+        for step in app.stream(initial_state(question)):
+            node, update = next(iter(step.items()))
+            if node == "retrieve":
+                print(f"  retrieve    {len(update['documents'])} chunks")
+            elif node == "grade":
+                print(f"  grade       {len(update['documents'])} relevant")
+            elif node == "rewrite":
+                print(f"  rewrite     -> {update['query']!r}")
+            elif node == "web_search":
+                print(f"  web_search  {len(update['documents'])} pages")
+            elif node == "generate":
+                print(f"\n{update['answer']}")
 
     qdrant_client.close()
-
