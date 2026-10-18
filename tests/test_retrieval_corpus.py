@@ -1,7 +1,7 @@
 """Corpus tests for specs/retrieval/spec.md, on the real `hippocampus` index.
 
 Skipped if Qdrant isn't running or the index isn't built. Run with -s to see
-the RT-7 and RT-13 reports:
+the RT-7, RT-13, RT-15 and RT-17 reports:
 
     pytest tests/test_retrieval_corpus.py -s
 """
@@ -14,6 +14,7 @@ from qdrant_client import QdrantClient
 
 from neuro_rag import config
 from neuro_rag.encoders import Encoders
+from neuro_rag.retrieval.rerank import Reranker
 from neuro_rag.retrieval.retrieve import RetrievalError, Retriever
 
 KNOWN_PAPERS = Path(__file__).parent / "data" / "known_papers.jsonl"
@@ -45,6 +46,13 @@ def retriever():
     client.close()
 
 
+@pytest.fixture(scope="module")
+def reranked(retriever):
+    r = Retriever(retriever.client, retriever.encoders, reranker=Reranker())
+    r.retrieve("hippocampus")  # loads the reranker before anything is timed
+    return r
+
+
 def known_papers():
     with open(KNOWN_PAPERS, encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
@@ -72,7 +80,8 @@ def test_RT7_known_papers_are_found(retriever):
     assert in_top5 >= 18
 
 
-def test_RT13_one_retrieval_takes_at_most_500ms(retriever):
+def timed(retriever) -> tuple[float, float]:
+    """(p50, p95) in seconds over the 50 timed questions."""
     questions = [q["question"] for q in known_papers()] + MORE_QUESTIONS
     assert len(questions) == 50
     times = []
@@ -80,7 +89,34 @@ def test_RT13_one_retrieval_takes_at_most_500ms(retriever):
         start = time.perf_counter()
         retriever.retrieve(q, k=5)
         times.append(time.perf_counter() - start)
+    times.sort()
+    return times[len(times) // 2], times[int(0.95 * len(times)) - 1]
 
-    p95 = sorted(times)[int(0.95 * len(times)) - 1]
-    print(f"\nRT-13 retrieval: p50 {sorted(times)[len(times) // 2] * 1000:.0f} ms, p95 {p95 * 1000:.0f} ms")
+
+def test_RT13_one_retrieval_takes_at_most_500ms(retriever):
+    p50, p95 = timed(retriever)
+    print(f"\nRT-13 retrieval: p50 {p50 * 1000:.0f} ms, p95 {p95 * 1000:.0f} ms")
     assert p95 <= 0.5
+
+
+def test_RT15_reranker_keeps_known_papers_in_top_5(retriever, reranked):
+    questions = known_papers()
+    before, after, moved = 0, 0, []
+    for q in questions:
+        was = q["pmcid"] in {r.pmcid for r in retriever.retrieve(q["question"], k=5)}
+        now = q["pmcid"] in {r.pmcid for r in reranked.retrieve(q["question"], k=5)}
+        before += was
+        after += now
+        if was != now:
+            moved.append(f"  {q['pmcid']} moved {'in' if now else 'out'}: {q['question']}")
+
+    print(f"\nRT-15 known papers in top 5: without reranker {before}/{len(questions)}, "
+          f"with reranker {after}/{len(questions)}")
+    print("\n".join(moved))
+    assert after >= 18
+
+
+def test_RT17_retrieval_with_reranking_takes_at_most_750ms(reranked):
+    p50, p95 = timed(reranked)
+    print(f"\nRT-17 retrieval with reranking: p50 {p50 * 1000:.0f} ms, p95 {p95 * 1000:.0f} ms")
+    assert p95 <= 0.75

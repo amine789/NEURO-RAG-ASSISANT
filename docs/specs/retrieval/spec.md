@@ -196,9 +196,72 @@ model has ever seen it.
 - **Why:** an answer must take at most 6 s in total, and most of that time goes
   to the LLM calls. Retrieval has to stay a small part of it.
 
+## Reranking (row 6a)
+
+An optional last step. Fusion ranks chunks by their positions in two lists; it
+never reads the question and the chunk together. A cross-encoder does: it reads
+each (question, chunk) pair and scores how well the chunk answers the question.
+That is slower, so it only reorders the best fused chunks.
+
+```
+… RRF fusion ──► top 20 fused ──► cross-encoder scores each (question, chunk) ──► top 5
+```
+
+The reranker is off unless one is passed to the retriever, so everything above
+works unchanged without it, and the eval can run both ways.
+
+| Setting | Start | Why |
+|---|---|---|
+| model | `cross-encoder/ms-marco-MiniLM-L6-v2`, run locally on ONNX through FastEmbed (`Xenova/ms-marco-MiniLM-L-6-v2`) | small, free, no new dependency; on PyTorch the same model took p95 701 ms (RT-17 failed), so it runs on ONNX; a bigger one (`BAAI/bge-reranker-v2-m3`) only if the eval says this one isn't enough |
+| chunks reranked | the top 20 after fusion | RT-7 showed the missed paper was among the candidates but below the top 5; 10 was tried to save time and lost most of the correctness gain ([decision 005](../../decisions/005-reranker.md)) |
+| chunks returned | 5 | unchanged |
+
+**RT-14: with a reranker, its scores decide the final order.**
+- **Given** a fake Qdrant whose fused query returns 20 chunks, named c1 to c20
+  in fused order, and a fake reranker that scores c20 highest, then c19, and
+  so on down to c1.
+- **When** a retriever built with that reranker is called with
+  `retrieve("where are place cells?", k=5)`.
+- **Then** the fake Qdrant was asked for 20 fused chunks; the fake reranker
+  received the question and the texts of all 20; the result is c20, c19, c18,
+  c17, c16 in that order, and each chunk's `score` is the reranker's score.
+- **Why:** if the reranker saw only the top 5, it could reorder them but never
+  lift a better chunk from position 12 into the answer, which is the whole
+  point of adding it.
+
+**RT-15: the real reranker keeps the right paper in the top 5.**
+- **Given** the real `hippocampus` index and the same 20 known-paper questions
+  as RT-7.
+- **When** each question is asked with `k=5`, once without the reranker and
+  once with it.
+- **Then** with the reranker, at least 18 of the 20 find their paper in the top
+  5. The test also reports both counts and which papers moved in or out of the
+  top 5.
+- **Why:** a reranker trained on web search (MS MARCO) may score neuroscience
+  text badly. This catches it making known questions worse before the full eval
+  is paid for.
+
+**RT-16: the reranker loads its model only once.**
+- **Given** one retriever with a reranker that counts how many times it loads
+  its model.
+- **When** the retriever is asked two different questions.
+- **Then** the reranker has loaded its model exactly once.
+- **Why:** like the encoders (RT-10), loading takes seconds; doing it per
+  question would slow every answer.
+
+**RT-17: one retrieval with reranking takes at most 750 ms.**
+- **Given** the real `hippocampus` index, with the encoders and the reranker
+  already loaded.
+- **When** the code asks the same 50 questions as RT-13, with the reranker, one
+  after another, and times each one.
+- **Then** 95% of them take 750 ms or less.
+- **Why:** retrieval must stay a small part of the 6 s answer. The reranker
+  scores 20 chunks with a model, which RT-13's 500 ms can't fit on a 4-core
+  CPU (561 ms measured); 750 ms leaves the answer under 6 s with generation's
+  p95 of about 4.5 s ([decision 005](../../decisions/005-reranker.md)).
+
 ## Out of scope
 
 - Judging whether the chunks are good enough to answer (grading, row 6).
-- Reranking with a cross-encoder (row 6).
 - Rewriting the question (row 7).
 - Filtering by paper, year or license.

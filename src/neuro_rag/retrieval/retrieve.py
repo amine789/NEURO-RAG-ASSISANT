@@ -1,8 +1,8 @@
 """Question -> top chunks, from dense and keyword search fused in one Qdrant query.
 
-Spec: docs/specs/retrieval/spec.md (RT-1 to RT-13).
+Spec: docs/specs/retrieval/spec.md (RT-1 to RT-17).
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import httpx
 from qdrant_client import QdrantClient
@@ -11,9 +11,11 @@ from qdrant_client.models import Fusion, FusionQuery, Prefetch
 
 from neuro_rag.config import COLLECTION_ALIAS
 from neuro_rag.encoders import DENSE, SPARSE, Encoders
+from neuro_rag.retrieval.rerank import Reranker
 
 TOP_K = 5
 CANDIDATES = 20  # per search, before fusion
+RERANK_CANDIDATES = 20  # fused chunks the reranker reorders (decision 005)
 
 
 class RetrievalError(Exception):
@@ -36,21 +38,31 @@ class Retriever:
     """Created once per process; the encoders inside it load their models once (RT-10).
 
     Every query names the alias, never a versioned collection, so a rebuild is
-    picked up without restarting (RT-9).
+    picked up without restarting (RT-9). With a reranker, fusion returns more
+    chunks and the reranker's scores pick the final k (RT-14).
     """
 
     def __init__(self, client: QdrantClient, encoders: Encoders, alias: str = COLLECTION_ALIAS,
-                 candidates: int = CANDIDATES):
+                 candidates: int = CANDIDATES, reranker: Reranker | None = None,
+                 rerank_candidates: int = RERANK_CANDIDATES):
         self.client = client
         self.encoders = encoders  # shared with ingest (RT-8)
         self.alias = alias
         self.candidates = candidates
+        self.reranker = reranker
+        self.rerank_candidates = rerank_candidates
 
     def retrieve(self, question: str, k: int = TOP_K) -> list[Retrieved]:
-        """The k best chunks, best first, by reciprocal rank fusion of both searches."""
+        """The k best chunks, best first: by reciprocal rank fusion, then by the reranker if there is one."""
         prefetch = self._prefetch(question)
-        points = self._query(prefetch=prefetch, query=FusionQuery(fusion=Fusion.RRF), limit=k)
-        return [_to_retrieved(p) for p in points]
+        limit = max(k, self.rerank_candidates) if self.reranker else k
+        points = self._query(prefetch=prefetch, query=FusionQuery(fusion=Fusion.RRF), limit=limit)
+        chunks = [_to_retrieved(p) for p in points]
+        if not self.reranker or not chunks:
+            return chunks
+        scores = self.reranker.score(question, [c.text for c in chunks])
+        ranked = sorted(zip(scores, chunks), key=lambda pair: pair[0], reverse=True)[:k]
+        return [replace(c, score=float(s)) for s, c in ranked]
 
     def candidate_pmcids(self, question: str) -> set[str]:
         """Papers among all candidates, before fusion keeps the top k (reported by RT-7)."""
