@@ -12,6 +12,10 @@ from sentence_transformers import SentenceTransformer
 
 from neuro_rag.config import DENSE_MODEL, SPARSE_MODEL
 
+# Names of the two vectors on each Qdrant point; ingest writes them, retrieval searches them.
+DENSE = "dense"
+SPARSE = "sparse"
+
 
 class Encoders:
     """Loads both models on first use, so importing this module stays cheap."""

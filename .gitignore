@@ -2,7 +2,7 @@
 .env
 
 # Data (raw corpus, indexes)
-data/
+/data/
 
 # Python
 __pycache__/

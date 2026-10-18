@@ -19,10 +19,9 @@ from qdrant_client.models import (
     VectorParams,
 )
 
+from neuro_rag.encoders import DENSE, SPARSE
 from neuro_rag.ingest.chunk import Chunk
 
-DENSE = "dense"
-SPARSE = "sparse"
 BATCH = 128
 
 
