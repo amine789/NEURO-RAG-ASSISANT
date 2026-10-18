@@ -1,0 +1,9 @@
+{
+  "system": "baseline (retrieve -> generate)",
+  "system_model": "claude-haiku-5-5",
+  "judge_model": "claude-haiku-5-5",
+  "index": "hippocampus-v1",
+  "started": "2026-10-18T21:16:49",
+  "repeats": 3,
+  "workers": 4
+}
