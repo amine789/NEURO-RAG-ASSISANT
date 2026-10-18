@@ -46,7 +46,7 @@ Status: planned → spec written → built → validated.
 |---|---|---|---|---|
 | 1 | Ingest and index | `ingest` | the 52 papers are a searchable, citable Qdrant collection, with a snapshot | validated |
 | 2 | Hybrid search | `retrieval` | a question returns its top chunks from dense + keyword search | validated |
-| 3 | Cited answer | `generation` | a question gets an answer citing paper and page | planned |
+| 3 | Cited answer | `generation` | a question gets an answer citing paper and page | validated |
 | 4 | Eval set and baseline score | `eval` | functionalities 1–3 have a measured score | planned |
 | 5 | API and tracing | `api`, `observability` | `POST /ask` answers, and each request is traced | planned |
 | 6 | Relevance judging (reranker with thresholds) | `retrieval`, `grading` | measured against the baseline | planned |

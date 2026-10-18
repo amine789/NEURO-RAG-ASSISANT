@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Corrective RAG over hippocampus and memory papers"
 requires-python = ">=3.11"
 dependencies = [
+    "anthropic>=1.8",
     "fastembed>=0.9",
     "langchain-text-splitters>=1.1",
     "pymupdf>=1.28",
@@ -25,4 +26,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["integration: needs a running Qdrant (docker compose up -d)"]
+# Tests that call Claude cost money, so they only run when asked for: pytest -m llm
+addopts = "-m 'not llm'"
+markers = [
+    "integration: needs a running Qdrant (docker compose up -d)",
+    "llm: calls the real Claude API (costs money); run with -m llm",
+]

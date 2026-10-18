@@ -27,7 +27,7 @@ offline index build job.
 
 | External system | Provides | Used |
 |---|---|---|
-| Anthropic | LLM calls: grading, rewriting, generation | every question |
+| Anthropic (`claude-haiku-5-5`) | LLM calls: grading, rewriting, generation | every question |
 | Firecrawl | web search and page scraping | web fallback only |
 | Langfuse Cloud | tracing: steps, prompts, tokens, latency, cost | every question |
 | Hugging Face (`all-MiniLM-L6-v2`, `Qdrant/bm25`) | dense and sparse encoders, downloaded once, run locally | index build and every question |
@@ -40,6 +40,9 @@ Choices behind this picture:
 - **Langfuse Cloud**, not self-hosted: self-hosting needs its own database,
   analytics store, cache and storage. Trade-off: questions and prompts leave the
   server.
+- **One model, Claude Haiku 5.5, for every LLM call**: cheapest and fastest,
+  which the latency target needs; a stronger model is tried only if the eval
+  shows Haiku isn't good enough.
 - **The UI calls the API over HTTP**: one entry point, so every request gets the
   same validation, errors and tracing; the UI stays a thin display layer.
 

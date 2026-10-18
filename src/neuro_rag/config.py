@@ -23,6 +23,10 @@ DENSE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DENSE_SIZE = 384
 SPARSE_MODEL = "Qdrant/bm25"
 
+# Every LLM call uses this model (ARCHITECTURE section 1).
+LLM_MODEL = "claude-haiku-5-5"
+LLM_EFFORT = "low"
+
 # Chunking, in tokens of the dense model's own tokenizer.
 CHUNK_SIZE = 200
 CHUNK_OVERLAP = 64
