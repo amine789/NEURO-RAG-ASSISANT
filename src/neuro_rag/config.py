@@ -29,6 +29,8 @@ RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"  # ONNX export of cross-encoder/m
 # Every LLM call uses this model (ARCHITECTURE section 1).
 LLM_MODEL = "claude-haiku-5-5"
 LLM_EFFORT = "low"
+# Haiku 5.5 price in dollars per token (prompts under 100K tokens); used by the eval and by tracing.
+PRICE_IN, PRICE_OUT = 0.10 / 1e6, 0.50 / 1e6
 
 # Chunking, in tokens of the dense model's own tokenizer.
 CHUNK_SIZE = 200

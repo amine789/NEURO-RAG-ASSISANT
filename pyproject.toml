@@ -5,13 +5,16 @@ description = "Corrective RAG over hippocampus and memory papers"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=1.8",
+    "fastapi>=0.141",
     "fastembed>=0.9",
     "langchain-text-splitters>=1.1",
+    "langfuse>=4.17",
     "pymupdf>=1.28",
     "python-dotenv>=1.2",
     "qdrant-client>=1.19",
     "requests>=2.32",
     "sentence-transformers>=4.1",
+    "uvicorn>=0.54",
 ]
 
 [project.optional-dependencies]

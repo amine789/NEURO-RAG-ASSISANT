@@ -2,7 +2,7 @@
 
 Spec: docs/specs/retrieval/spec.md (RT-1 to RT-17).
 """
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 import httpx
 from qdrant_client import QdrantClient
@@ -11,7 +11,7 @@ from qdrant_client.models import Fusion, FusionQuery, Prefetch
 
 from neuro_rag.config import COLLECTION_ALIAS
 from neuro_rag.encoders import DENSE, SPARSE, Encoders
-from neuro_rag.retrieval.rerank import Reranker
+from neuro_rag.retrieval.rerank import Reranker, rerank
 
 TOP_K = 5
 CANDIDATES = 20  # per search, before fusion
@@ -58,11 +58,18 @@ class Retriever:
         limit = max(k, self.rerank_candidates) if self.reranker else k
         points = self._query(prefetch=prefetch, query=FusionQuery(fusion=Fusion.RRF), limit=limit)
         chunks = [_to_retrieved(p) for p in points]
-        if not self.reranker or not chunks:
-            return chunks
-        scores = self.reranker.score(question, [c.text for c in chunks])
-        ranked = sorted(zip(scores, chunks), key=lambda pair: pair[0], reverse=True)[:k]
-        return [replace(c, score=float(s)) for s, c in ranked]
+        return rerank(self.reranker, question, chunks, k) if self.reranker else chunks
+
+    def index_name(self) -> str:
+        """The collection the alias points at now; raises RetrievalError if Qdrant or the alias is missing."""
+        try:
+            aliases = self.client.get_aliases().aliases
+        except (ResponseHandlingException, httpx.HTTPError, ConnectionError, UnexpectedResponse) as e:
+            raise RetrievalError("Qdrant is unreachable") from e
+        for a in aliases:
+            if a.alias_name == self.alias:
+                return a.collection_name
+        raise RetrievalError(f"alias '{self.alias}' not found")
 
     def candidate_pmcids(self, question: str) -> set[str]:
         """Papers among all candidates, before fusion keeps the top k (reported by RT-7)."""

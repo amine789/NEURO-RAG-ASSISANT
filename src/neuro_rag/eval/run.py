@@ -21,8 +21,7 @@ from neuro_rag import config
 QUESTIONS_PATH = config.PROJECT_ROOT / "eval" / "questions.jsonl"
 RESULTS_DIR = config.PROJECT_ROOT / "eval" / "results"
 
-# Haiku 5.5 price, dollars per token (prompts under 100K tokens).
-PRICE_IN, PRICE_OUT = 0.10 / 1e6, 0.50 / 1e6
+PRICE_IN, PRICE_OUT = config.PRICE_IN, config.PRICE_OUT
 # Rough tokens per call, for the estimate before a run (EV-4); real usage is recorded per run.
 EST_ANSWER = (3000, 400)
 EST_JUDGE = (1500, 150)

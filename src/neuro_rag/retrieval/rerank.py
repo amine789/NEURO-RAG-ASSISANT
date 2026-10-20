@@ -5,6 +5,7 @@ the same model on PyTorch was too slow on CPU (RT-17).
 
 Spec: docs/specs/retrieval/spec.md, Reranking (RT-14 to RT-17).
 """
+from dataclasses import replace
 from functools import cached_property
 
 from fastembed.rerank.cross_encoder import TextCrossEncoder
@@ -25,3 +26,12 @@ class Reranker:
     def score(self, question: str, texts: list[str]) -> list[float]:
         """One relevance score per text, higher is better; same order as `texts`."""
         return [float(s) for s in self.model.rerank(question, texts)]
+
+
+def rerank(reranker, question: str, chunks: list, k: int) -> list:
+    """The k chunks the reranker scores highest, best first, each carrying its reranker score."""
+    if not chunks:
+        return chunks
+    scores = reranker.score(question, [c.text for c in chunks])
+    ranked = sorted(zip(scores, chunks), key=lambda pair: pair[0], reverse=True)[:k]
+    return [replace(c, score=float(s)) for s, c in ranked]

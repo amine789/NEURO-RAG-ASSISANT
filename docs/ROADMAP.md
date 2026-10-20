@@ -48,7 +48,7 @@ Status: planned → spec written → built → validated.
 | 2 | Hybrid search | `retrieval` | a question returns its top chunks from dense + keyword search | validated |
 | 3 | Cited answer | `generation` | a question gets an answer citing paper and page | validated |
 | 4 | Eval set and baseline score | `eval` | functionalities 1–3 have a measured score | built: baseline measured; EV-11 (judge vs a person) open |
-| 5 | API and tracing | `api`, `observability` | `POST /ask` answers, and each request is traced | planned |
+| 5 | API and tracing | `api`, `observability`, `orchestration` | `POST /ask` answers, and each request is traced | validated |
 | 6a | Reranker | `retrieval`, `eval` | compared with the baseline: kept if correctness or retrieval hit rises, no score drops by more than 0.05, and p95 stays ≤ 6 s | built: kept, 20 chunks on ONNX ([decision 005](decisions/005-reranker.md)) |
 | 6b | Relevance judging (grading with thresholds) | `grading` | measured against the baseline | planned |
 | 7 | Correction: rewrite and web search | `correction`, `orchestration` | out-of-corpus questions improve, measured against the baseline | planned |
