@@ -50,7 +50,7 @@ Status: planned → spec written → built → validated.
 | 4 | Eval set and baseline score | `eval` | functionalities 1–3 have a measured score | built: baseline measured; EV-11 (judge vs a person) open |
 | 5 | API and tracing | `api`, `observability`, `orchestration` | `POST /ask` answers, and each request is traced | validated |
 | 6a | Reranker | `retrieval`, `eval` | compared with the baseline: kept if correctness or retrieval hit rises, no score drops by more than 0.05, and p95 stays ≤ 6 s | built: kept, 20 chunks on ONNX ([decision 005](decisions/005-reranker.md)) |
-| 6b | Relevance judging (grading with thresholds) | `grading` | measured against the baseline | planned |
+| 6b | Relevance judging (LLM grader) | `grading` | the grader agrees with the eval labels (GR-10) and takes p95 ≤ 2 s ([decision 006](decisions/006-relevance-grading.md)) | validated |
 | 7 | Correction: rewrite and web search | `correction`, `orchestration` | out-of-corpus questions improve, measured against the baseline | planned |
 | 8 | Declining off-domain questions | `grading`, `orchestration` | off-domain questions declined, no false declines | planned |
 | 9 | UI | `ui` | the app works in a browser | planned |
