@@ -25,7 +25,7 @@ def test_OB1_one_trace_with_three_steps_in_order():
     trace = tracer.traces[0]
     assert trace["name"] == "ask"
     assert trace["input"] == "What do place cells do?"
-    assert trace["output"] == {"answer": ANSWER, "pmcids": ["PMC1"]}
+    assert trace["output"] == {"answer": ANSWER, "pmcids": ["PMC1"], "path": "papers"}
     assert [s["name"] for s in trace["steps"]] == ["retrieve", "rerank", "generate"]
     for step in trace["steps"]:
         assert step["start"] <= step["end"]

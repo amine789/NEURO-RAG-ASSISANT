@@ -106,8 +106,7 @@ def create_app(pipeline: Pipeline | None = None, tracer: Tracer | None = None) -
         trace = None
         try:
             with state.tracer.trace("ask", input=body.question) as trace:
-                answer = state.pipeline.ask(body.question, trace)
-                trace.update(output={"answer": answer.text, "pmcids": [s.pmcid for s in answer.sources]})
+                answer = state.pipeline.ask(body.question, trace).answer  # the pipeline sets the trace's output
         except RetrievalError:
             return _error(503, INDEX_DOWN, trace)
         except GenerationError:

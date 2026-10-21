@@ -31,7 +31,7 @@ medical advice for individuals.
 
 | Area | Target |
 |---|---|
-| Latency (p95) | corpus path ≤ 6 s total; web path ≤ 30 s |
+| Latency (p95) | corpus path ≤ 6 s total; rewritten path ≤ 8 s; web path ≤ 30 s |
 | Reliability | a failing optional part (web search, a parse) degrades the answer, never crashes the request |
 | Citations | every `[n]` in an answer maps to a listed source |
 | Cost | measured per request from traces; target set after the first measured run |
@@ -51,7 +51,8 @@ Status: planned → spec written → built → validated.
 | 5 | API and tracing | `api`, `observability`, `orchestration` | `POST /ask` answers, and each request is traced | validated |
 | 6a | Reranker | `retrieval`, `eval` | compared with the baseline: kept if correctness or retrieval hit rises, no score drops by more than 0.05, and p95 stays ≤ 6 s | built: kept, 20 chunks on ONNX ([decision 005](decisions/005-reranker.md)) |
 | 6b | Relevance judging (LLM grader) | `grading` | the grader agrees with the eval labels (GR-10) and takes p95 ≤ 2 s ([decision 006](decisions/006-relevance-grading.md)) | validated |
-| 7 | Correction: rewrite and web search | `correction`, `orchestration` | out-of-corpus questions improve, measured against the baseline | planned |
+| 7a | Rewrite: a failed grade is rewritten and searched again | `correction`, `orchestration` | the rewriter finds missed papers (CR-9); then, wired into the flow, the eval improves on the reranker run | rewriter and orchestration built, unit tests pass; eval next |
+| 7b | Web search: when the papers fail twice | `correction`, `orchestration` | out-of-corpus questions answered from vetted web sources, measured | planned |
 | 8 | Declining off-domain questions | `grading`, `orchestration` | off-domain questions declined, no false declines | planned |
 | 9 | UI | `ui` | the app works in a browser | planned |
 | 10 | Deployment | `deployment` | public URL; the eval passes against it | planned |

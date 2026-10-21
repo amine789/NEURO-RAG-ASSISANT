@@ -48,7 +48,8 @@ animal is at a specific location." How each one is run is in
 - **Given** the API with the recording tracer and the fake pipeline.
 - **When** a client sends `POST /ask` with `{"question": "What do place cells do?"}`.
 - **Then** exactly one trace was recorded, named "ask". Its input is the
-  question, its output is the answer text and the source `pmcid`s (["PMC1"]).
+  question, its output is the answer text, the source `pmcid`s (["PMC1"])
+  and the path (`papers`; orchestration, row 7a).
   It has three steps, in this order: "retrieve", "rerank", "generate", each
   with a start and end time. The response's `trace_id` is this trace's ID.
 - **Why:** a slow or wrong answer is investigated by opening its trace; the
