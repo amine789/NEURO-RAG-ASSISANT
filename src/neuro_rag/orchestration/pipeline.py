@@ -5,7 +5,7 @@ Grade, rewrite and generate run at the same time, so a passing question waits
 only for its answer. Without a grader, this is row 5's straight line.
 """
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from neuro_rag.config import PRICE_IN, PRICE_OUT
 from neuro_rag.correction.rewrite import Rewriter, RewriteError
@@ -22,6 +22,8 @@ NOT_FOUND_PAPERS = "I couldn't find this in the papers."
 class Outcome:
     answer: Answer
     path: str  # "papers" | "papers_rewritten" | "none"
+    chunks: list = field(default_factory=list)  # the chunks the last grade saw (OR-9)
+    query: str | None = None  # the rewritten query, once the second search ran
 
 
 class Pipeline:
@@ -37,27 +39,27 @@ class Pipeline:
     def ask(self, question: str, trace: Trace) -> Outcome:
         chunks = self._search(question, trace)  # step 1
         if not self.grader:  # row 5's straight line (OR-8)
-            return self._done(trace, self._generate(question, chunks, trace), "papers")
+            return self._done(trace, self._generate(question, chunks, trace), "papers", chunks)
 
         grade = self._start(trace, "grade", self.grader.grade, question, chunks)  # step 2
         rewrite = self._start(trace, "rewrite", self.rewriter.rewrite, question) if self.rewriter else None
         answer = self.pool.submit(self._generate, question, chunks, trace)
         if self._passed(grade):  # step 3
-            return self._done(trace, answer.result(), "papers")
+            return self._done(trace, answer.result(), "papers", chunks)
         if rewrite is None:
-            return self._done(trace, Answer(NOT_FOUND_PAPERS), "none")
+            return self._done(trace, Answer(NOT_FOUND_PAPERS), "none", chunks)
 
         try:  # step 4
             query = rewrite.result()
         except RewriteError:
-            return self._done(trace, Answer(NOT_FOUND_PAPERS), "none")
+            return self._done(trace, Answer(NOT_FOUND_PAPERS), "none", chunks)
         chunks = self._search(query, trace)
 
         grade = self._start(trace, "grade", self.grader.grade, question, chunks)  # step 5: original question
         answer = self.pool.submit(self._generate, question, chunks, trace)
         if self._passed(grade):  # step 6
-            return self._done(trace, answer.result(), "papers_rewritten")
-        return self._done(trace, Answer(NOT_FOUND_PAPERS), "none")
+            return self._done(trace, answer.result(), "papers_rewritten", chunks, query)
+        return self._done(trace, Answer(NOT_FOUND_PAPERS), "none", chunks, query)
 
     def index_name(self) -> str:
         return self.retriever.index_name()
@@ -100,9 +102,9 @@ class Pipeline:
             return True
 
     @staticmethod
-    def _done(trace: Trace, answer: Answer, path: str) -> Outcome:
+    def _done(trace: Trace, answer: Answer, path: str, chunks: list, query: str | None = None) -> Outcome:
         trace.update(output={"answer": answer.text, "pmcids": [s.pmcid for s in answer.sources], "path": path})
-        return Outcome(answer, path)  # step 8
+        return Outcome(answer, path, chunks, query)  # step 8
 
 
 def _listed(chunks) -> list[dict]:

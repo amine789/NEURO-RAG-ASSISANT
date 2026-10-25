@@ -1,11 +1,16 @@
 """Unit tests for specs/eval/spec.md: fake retriever, generator and judge; no API calls."""
 import json
+import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
+from types import SimpleNamespace
 
 from neuro_rag.eval.judge import Correctness, Faithfulness, JudgeError
-from neuro_rag.eval.report import build_comparison, build_report
+from neuro_rag.eval.report import build_comparison, build_report, scores
 from neuro_rag import config
-from neuro_rag.eval.run import Question, run_eval, run_one, system_meta
+from neuro_rag.eval.run import Question, run_eval, run_one, run_one_corrective, system_meta
 from neuro_rag.generation.generate import Answer, Citation, Source, Usage
+from neuro_rag.orchestration.pipeline import NOT_FOUND_PAPERS, Outcome
 from neuro_rag.retrieval.retrieve import Retrieved
 
 Q01 = Question("q01", "direct", "answer_from_corpus", "How does m6A support memory?", "Ythdf1 enhances translation.",
@@ -191,3 +196,132 @@ def test_EV14_rerank_run_is_labelled():
     assert system_meta(rerank=True)["system"] == "baseline + rerank"
     assert system_meta(rerank=True)["reranker"] == config.RERANK_MODEL
     assert "reranker" not in system_meta(rerank=False)
+
+
+# The corrective system (row 7a)
+
+Q33 = Question("q33", "casual_loose_terms", "answer_from_corpus",
+               "front bit vs back bit of the hippocampus, which one does what when you remember pairs of things?",
+               "Associative memory engages the rostral hippocampus during encoding.", frozenset({"PMC7"}))
+REWRITTEN = "rostral versus caudal hippocampus associative memory encoding retrieval"
+# the worked example: grade, rewrite, generate (thrown away), grade, generate
+Q33_CALLS = [(2900, 60), (450, 25), (3100, 380), (2900, 60), (3100, 380)]
+Q01_CALLS = [(2900, 60), (450, 25), (3100, 380)]
+
+
+class FakeAnthropic:
+    """Answers each call with the tokens it is asked to report."""
+
+    def __init__(self):
+        self.messages = self
+
+    def create(self, tokens):
+        return SimpleNamespace(usage=SimpleNamespace(input_tokens=tokens[0], output_tokens=tokens[1]))
+
+
+def cited_answer(c):
+    return Answer("Ythdf1 knockout mice show learning defects. [1]",
+                  [Source(1, c.pmcid, c.title, c.citation, c.page, "url")], [Citation(1, 0, c.text)], Usage(3100, 380))
+
+
+class FakePipeline:
+    """Answers from `plans`: question -> (outcome, Claude calls). The last call runs in the background,
+    after ask has returned, like a generation that is thrown away."""
+
+    def __init__(self, client, plans, delay=0.0):
+        self.client, self.plans, self.delay = client, plans, delay
+        self.pool = ThreadPoolExecutor(max_workers=1)
+
+    def ask(self, question, trace):
+        outcome, calls = self.plans[question]
+        for tokens in calls[:-1]:
+            self.client.messages.create(tokens=tokens)
+        self.pool.submit(lambda: (time.sleep(0.1), self.client.messages.create(tokens=calls[-1])))
+        time.sleep(self.delay)
+        return outcome
+
+
+def plans():
+    q01_chunks, q33_chunks = [chunk("PMC6226095")], [chunk("PMC7")]
+    return {Q01.question: (Outcome(cited_answer(q01_chunks[0]), "papers", q01_chunks), Q01_CALLS),
+            Q33.question: (Outcome(cited_answer(q33_chunks[0]), "papers_rewritten", q33_chunks, REWRITTEN),
+                           Q33_CALLS)}
+
+
+def corrective(plans, delay=0.0):
+    return partial(run_one_corrective, make_pipeline=lambda c: FakePipeline(c, plans, delay), judge=FakeJudge(),
+                   client=FakeAnthropic())
+
+
+def test_EV15_corrective_run_is_labelled():
+    meta = system_meta(rerank=False, corrective=True)
+
+    assert meta["system"] == "rerank + grade + rewrite (row 7a)"
+    assert meta["reranker"] == config.RERANK_MODEL
+    assert meta["grader_model"] == meta["rewriter_model"] == config.LLM_MODEL
+
+
+def test_EV16_each_run_records_path_and_query(tmp_path):
+    path = run_eval([Q01, Q33], None, None, FakeJudge(), tmp_path / "run", repeats=1, workers=2,
+                    log=lambda *_: None, run=corrective(plans()))
+
+    runs = {r["id"]: r for r in read(path)}
+    assert (runs["q01"]["path"], runs["q01"]["query"]) == ("papers", None)
+    assert (runs["q33"]["path"], runs["q33"]["query"]) == ("papers_rewritten", REWRITTEN)
+
+
+def test_EV17_cost_counts_every_claude_call():
+    rewritten = corrective(plans())(Q33, 1)
+    first = corrective(plans())(Q01, 1)
+
+    assert (rewritten["claude_calls"], rewritten["input_tokens"], rewritten["output_tokens"]) == (5, 12450, 905)
+    assert abs(rewritten["cost_usd"] - 0.0016975) < 1e-12
+    assert first["claude_calls"] == 3
+
+
+def test_EV18_latency_is_the_whole_ask():
+    run = corrective(plans(), delay=0.3)(Q01, 1)
+
+    assert 0.3 <= run["total_s"] < 0.4
+    assert scores([run])["p95 s"] == run["total_s"]
+    assert abs(scores([make_run("q01", "direct")])["p95 s"] - 3.02) < 1e-9  # a baseline run: retrieval + generation
+
+
+def test_EV19_couldnt_find_is_scored():
+    q01_chunks, q51_chunks = [chunk("PMC1")], [chunk("PMC1")]
+    refused = {Q01.question: (Outcome(Answer(NOT_FOUND_PAPERS), "none", q01_chunks, REWRITTEN), Q01_CALLS),
+               Q51.question: (Outcome(Answer(NOT_FOUND_PAPERS), "none", q51_chunks, "sourdough bread"), Q01_CALLS)}
+
+    q01 = corrective(refused)(Q01, 1)
+    q51 = corrective(refused)(Q51, 1)
+
+    assert q01["correctness"] == "partial"  # the fake judge's verdict: the refusal was judged
+    assert q01["cites_expected"] is False
+    assert q01["faithful"] is None  # cites nothing, so not judged for faithfulness
+    assert q51["not_covered"] is True
+
+
+def corrective_run(qid, path, correctness, total_s, query=None):
+    return {"id": qid, "type": "direct", "expected_behavior": "answer_from_corpus", "repeat": 1, "error": None,
+            "judge_error": None, "correctness": correctness, "faithful": None, "retrieval_hit": None,
+            "cites_expected": None, "not_covered": None, "total_s": total_s, "cost_usd": 0.0017, "path": path,
+            "query": query}
+
+
+def test_EV20_report_by_path():
+    runs = [corrective_run("q02", "papers", "correct", 2.0), corrective_run("q03", "papers", "correct", 2.5),
+            corrective_run("q04", "papers", "correct", 3.0), corrective_run("q05", "papers", "partial", 3.5),
+            corrective_run("q33", "papers_rewritten", "correct", 5.0, REWRITTEN),
+            corrective_run("q01", "none", "wrong", 4.0, "m6A methylation memory")]
+
+    report = build_report(runs, {"system": "rerank + grade + rewrite (row 7a)", "repeats": 1, "workers": 1})
+
+    by_path = report.split("## By path")[1].split("## Answerable")[0]
+    rows = {line.split("|")[1].strip(): line for line in by_path.splitlines() if line.startswith("| ")}
+    assert rows["papers"].startswith("| papers | 4 | 67% | 0.88 | 2.5 | 3.5 |")
+    assert rows["papers_rewritten"].startswith("| papers_rewritten | 1 | 17% | 1.00 | 5.0 | 5.0 |")
+    assert rows["none"].startswith("| none | 1 | 17% | 0.00 | 4.0 | 4.0 |")
+    listed = [line for line in report.split("## Answerable")[1].splitlines() if line.startswith("| q")]
+    assert listed == ["| q01 | 1 | none | m6A methylation memory | wrong |",
+                      f"| q33 | 1 | papers_rewritten | {REWRITTEN} | correct |"]
+    assert "| all (excl. multilingual) | 6 |" in report  # the type table, as for any run

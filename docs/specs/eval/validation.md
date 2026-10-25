@@ -28,6 +28,12 @@ The examples are in the spec; this file says where each one runs.
 | EV-12 | unit | `test_EV12_report_has_every_score_by_type` |
 | EV-13 | unit | `test_EV13_two_reports_compare_side_by_side` |
 | EV-14 | unit | `test_EV14_rerank_run_is_labelled` |
+| EV-15 | unit | `test_EV15_corrective_run_is_labelled` |
+| EV-16 | unit | `test_EV16_each_run_records_path_and_query` |
+| EV-17 | unit | `test_EV17_cost_counts_every_claude_call` |
+| EV-18 | unit | `test_EV18_latency_is_the_whole_ask` |
+| EV-19 | unit | `test_EV19_couldnt_find_is_scored` |
+| EV-20 | unit | `test_EV20_report_by_path` |
 
 ## Results
 

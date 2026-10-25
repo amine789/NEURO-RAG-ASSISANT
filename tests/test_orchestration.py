@@ -196,3 +196,13 @@ def test_OR8_without_grader_flow_is_row_5s():
 
     assert outcome.path == "papers"
     assert names(trace) == ["retrieve", "rerank", "generate"]
+
+
+def test_OR9_outcome_carries_chunks_and_query():
+    rewritten, _ = ask(build(FakeGrader(False, True), FakeRewriter(QUERY)), FEAR)
+    first, _ = ask(build(FakeGrader(True), FakeRewriter(QUERY)), "What do place cells encode?")
+
+    assert rewritten.query == QUERY
+    assert rewritten.chunks[0].text == f"{QUERY} | chunk 0"
+    assert first.query is None
+    assert first.chunks[0].text == "What do place cells encode? | chunk 0"

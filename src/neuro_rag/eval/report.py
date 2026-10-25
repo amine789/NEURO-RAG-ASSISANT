@@ -1,4 +1,4 @@
-"""runs.jsonl -> report.md, overall and by question type; and two runs side by side (EV-12, EV-13).
+"""runs.jsonl -> report.md, overall, by question type and by path; and two runs side by side (EV-12, EV-13, EV-20).
 
     python -m neuro_rag.eval.report eval/results/<folder>
     python -m neuro_rag.eval.report eval/results/<new> --compare eval/results/<old>
@@ -7,9 +7,13 @@ import argparse
 import json
 from pathlib import Path
 
+from neuro_rag.eval.run import JUDGED_FOR_CORRECTNESS
+
 SCORE = {"correct": 1.0, "partial": 0.5, "wrong": 0.0}
 COLUMNS = ["runs", "correctness", "faithful", "retrieval hit", "cites expected", "not covered",
            "p50 s", "p95 s", "$ per answer"]
+PATHS = ["papers", "papers_rewritten", "none"]
+PATH_COLUMNS = ["runs", "share", "correctness", "p50 s", "p95 s", "$ per answer"]
 COMPARED = ["correctness", "faithful", "retrieval hit", "cites expected", "not covered", "p95 s", "$ per answer"]
 
 
@@ -28,10 +32,15 @@ def _percentile(values, p) -> float | None:
     return values[max(0, int(round(p * len(values))) - 1)] if values else None
 
 
+def _latency(run: dict) -> float:
+    """The whole ask for a corrective run; retrieval plus generation for the others (EV-18)."""
+    return run["total_s"] if "total_s" in run else run["retrieval_s"] + run["generation_s"]
+
+
 def scores(runs: list[dict]) -> dict:
     """Every score for a group of runs; None where no run in the group has that measure."""
     ok = [r for r in runs if not r["error"]]
-    times = [r["retrieval_s"] + r["generation_s"] for r in ok]
+    times = [_latency(r) for r in ok]
     return {
         "runs": len(runs),
         "correctness": _mean(SCORE.get(r.get("correctness")) for r in ok),
@@ -53,11 +62,31 @@ def by_type(runs: list[dict]) -> dict[str, dict]:
     return {name: scores(group) for name, group in groups.items()}
 
 
+def by_path(runs: list[dict]) -> dict[str, dict]:
+    """Each path's runs, share and scores; multilingual and failed runs left out, as in the overall row (EV-20)."""
+    ok = [r for r in runs if not r["error"] and not r["type"].startswith("multilingual")]
+    rows = {}
+    for path in PATHS:
+        group = [r for r in ok if r.get("path") == path]
+        if group:
+            rows[path] = {**scores(group), "share": len(group) / len(ok)}
+    return rows
+
+
+def rerouted(runs: list[dict]) -> list[dict]:
+    """Answerable questions that weren't answered on the first search, run by run (EV-20)."""
+    picked = [r for r in runs if not r["error"] and r.get("expected_behavior") in JUDGED_FOR_CORRECTNESS
+              and r.get("path") not in (None, "papers")]
+    return sorted(picked, key=lambda r: (r["id"], r["repeat"]))
+
+
 def _fmt(column: str, value) -> str:
     if value is None:
         return "–"
     if column == "runs":
         return str(value)
+    if column == "share":
+        return f"{value:.0%}"
     if column in ("p50 s", "p95 s"):
         return f"{value:.1f}"
     if column == "$ per answer":
@@ -79,9 +108,17 @@ def build_report(runs: list[dict], meta: dict) -> str:
             f"- {len(runs)} runs ({meta.get('repeats')} repeats, {meta.get('workers')} at a time); "
             f"{errors} failed; {judge_errors} not judged", "",
             "Correctness: correct 1, partial 0.5, wrong 0. Rates are fractions of the runs each measure "
-            "applies to; – means it applies to none. Latency is retrieval plus generation.", ""]
+            "applies to; – means it applies to none. Latency is retrieval plus generation; for the corrective system, the whole question.", ""]
     rows = [[name] + [_fmt(c, s[c]) for c in COLUMNS] for name, s in by_type(runs).items()]
-    return "\n".join(head) + _table(["questions"] + COLUMNS, rows) + "\n"
+    report = "\n".join(head) + _table(["questions"] + COLUMNS, rows) + "\n"
+    if any("path" in r for r in runs):  # the corrective system (row 7a); other reports are unchanged
+        paths = [[path] + [_fmt(c, s[c]) for c in PATH_COLUMNS] for path, s in by_path(runs).items()]
+        listed = [[r["id"], str(r["repeat"]), r["path"], r.get("query") or "–", r.get("correctness") or "–"]
+                  for r in rerouted(runs)]
+        report += ("\n## By path\n\n" + _table(["path"] + PATH_COLUMNS, paths) + "\n"
+                   "\n## Answerable questions not answered on the first search\n\n"
+                   + _table(["id", "repeat", "path", "rewritten query", "correctness"], listed) + "\n")
+    return report
 
 
 def build_comparison(new: list[dict], old: list[dict], new_name: str, old_name: str) -> str:

@@ -81,6 +81,8 @@ NOT_FOUND_PAPERS = "I couldn't find this in the papers."
 class Outcome:
     answer: Answer
     path: str            # "papers" | "papers_rewritten" | "none"
+    chunks: list = field(default_factory=list)   # the chunks the last grade saw (OR-9)
+    query: str | None = None  # the rewritten query, when the second search ran (OR-9)
 
 class Pipeline:
     def __init__(self, retriever, generator, reranker=None, grader=None, rewriter=None)
@@ -131,7 +133,11 @@ The pipeline owns one `ThreadPoolExecutor(max_workers=8)` for its lifetime;
    discarded generate or rewrite) are recorded in its trace step and never
    raised.
 8. **The trace's output** gets `"path": <path>` next to the answer and the
-   pmcids (row 5's output). The rewrite step's output is the query.
+   pmcids (row 5's output). The rewrite step's output is the query. The
+   returned `Outcome` also carries `chunks`, the chunks the last grade saw
+   (A, or B once the second search ran; A without a grader), and `query`, the
+   rewritten query once the second search ran, else `None` (added for the
+   eval, EV-16; OR-9).
 
 9. The executor is the attribute `pool`; tests call `pipeline.pool.shutdown(wait=True)`
    before reading the trace, so steps still running in the background have
@@ -262,12 +268,25 @@ in [validation.md](validation.md).
 - **Why:** the reranker system (row 6a) must stay runnable for comparison in
   the eval, and the row 5 API tests must keep passing unchanged.
 
+**OR-9: the outcome carries the chunks it was decided on, and the rewritten query.**
+- **Given** the pipeline with a grader that fails the first chunks and passes
+  the second, and a rewriter returning "amygdala hippocampus theta phase
+  synchrony aversive memory".
+- **When** `ask(FEAR, trace)` runs (the fear-center question).
+- **Then** `outcome.query` is that query and `outcome.chunks` are the second
+  search's chunks (the first one's text is "amygdala hippocampus theta phase
+  synchrony aversive memory | chunk 0" with the test's retriever). With a
+  grader that passes the first chunks, `outcome.query` is `None` and
+  `outcome.chunks` are the first search's.
+- **Why:** the eval judges faithfulness against the chunks' texts and counts
+  a retrieval hit from them; the trace holds only chunk ids (OB-2), so the
+  outcome has to carry them.
+
 ## Out of scope
 
 - Web search when both grades fail (row 7b).
 - Declining off-topic questions (row 8). Until then an off-topic question
   fails both grades and gets "I couldn't find this in the papers." after a
   rewrite and a second search.
-- Running the corrective system in the eval: the eval spec gets its own
-  criterion for that next (the system name, the path per run, latency per
-  path).
+- Running the corrective system in the eval: eval spec, "The corrective
+  system (row 7a)", EV-15 to EV-20.

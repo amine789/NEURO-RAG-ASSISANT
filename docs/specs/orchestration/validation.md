@@ -19,6 +19,20 @@ The examples are in the spec; this file says where each one runs.
 | OR-6 | unit | `test_OR6_grading_error_counts_as_passed` |
 | OR-7 | unit | `test_OR7_rewrite_error_ends_with_couldnt_find` |
 | OR-8 | unit | `test_OR8_without_grader_flow_is_row_5s` |
+| OR-9 | unit | `test_OR9_outcome_carries_chunks_and_query` |
+
+## Row 7a gate
+
+Grading and rewriting go into the service (`build_pipeline`) only if the
+corrective eval run (eval spec, EV-15 to EV-20), compared with a rerank run
+made the same day:
+
+- has a higher correctness (excluding multilingual) by more than the gap
+  between the two rerank runs (2026-10-18 PyTorch and the same-day ONNX run);
+- has a `papers` path p95 ≤ 6 s;
+- has a `papers_rewritten` path p95 ≤ 8 s.
+
+Accepted 2026-10-22 (eval spec, choice 8).
 
 ## Results
 
