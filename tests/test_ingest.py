@@ -1,147 +1,154 @@
-"""Unit tests for specs/ingest/spec.md: no Qdrant, no models. Named after the criteria."""
+from pathlib import Path
+
+import pymupdf
 import pytest
 
-from helpers import BODY, body_pages, catalog_row, make_pdf, paper, word_count, write_catalog
-from neuro_rag.ingest.catalog import load_catalog, select_papers
-from neuro_rag.ingest.chunk import _fit, chunk_pages
-from neuro_rag.ingest.parse import ParseError, parse_paper
+from neuro_rag.ingest.catalog import Paper, select_papers
+from neuro_rag.ingest.chunk import TokenCounter, chunk_page
+from neuro_rag.ingest.index import point_id
+from neuro_rag.ingest.parse import Page, ParseError, body_lines, join_lines, parse_pdf
 
 
-@pytest.fixture
-def raw(tmp_path):
-    d = tmp_path / "raw"
-    d.mkdir()
-    return d
+def test_IN1_paper_not_kept_is_not_selected(tmp_path):
+    kept = [f"PMC{n:07d}" for n in range(1, 53)]
+    catalog = {pmcid: Paper(pmcid, f"Title {pmcid}", f"Citation {pmcid}", "CC BY") for pmcid in kept}
+    for pmcid in kept:
+        (tmp_path / f"{pmcid}.pdf").touch()
+    (tmp_path / "PMC6925997.pdf").touch()
+
+    selected = select_papers(tmp_path, catalog)
+
+    assert len(selected) == 52
+    for (pdf, paper), pmcid in zip(selected, kept):
+        assert pdf.name == f"{pmcid}.pdf"
+        assert paper == catalog[pmcid]
 
 
-def chunks_of(pages, size=40, overlap=10, max_tokens=60):
-    return chunk_pages(pages, word_count, max_tokens, size, overlap)
+def test_IN2_unreadable_pdf_raises_parse_error(tmp_path):
+    bad = tmp_path / "PMC0000002.pdf"
+    bad.write_bytes(b"not a pdf")
+
+    with pytest.raises(ParseError, match=r"^can't open PMC0000002\.pdf"):
+        parse_pdf(bad, "PMC0000002")
 
 
-# Input
+def test_IN3_lines_on_most_pages_are_dropped():
+    pages = [
+        ["Shi et al.", "Hippocampal neurogenesis", "Page one text."],
+        ["Shi et al.", "Hippocampal neurogenesis", "Page two text."],
+        ["Shi et al.", "Page three text."],
+        ["Page four text."],
+    ]
 
-def test_IN1_pdf_not_in_catalog_or_not_kept_is_skipped(raw, tmp_path):
-    good = make_pdf(raw / "PMC1.pdf", body_pages(1))
-    unlisted = make_pdf(raw / "PMC2.pdf", body_pages(1))
-    not_kept = make_pdf(raw / "PMC3.pdf", body_pages(1))
-    catalog = write_catalog(tmp_path / "c.csv", [catalog_row(good), catalog_row(not_kept, keep="no")])
+    kept = body_lines(pages)
 
-    selected, skipped = select_papers(raw, load_catalog(catalog))
-
-    assert [p.pmcid for _, p in selected] == ["PMC1"]
-    assert {s.name for s in skipped} == {unlisted.name, not_kept.name}
-    assert all("catalog" in s.reason for s in skipped)
-
-
-def test_IN2_checksum_mismatch_is_skipped(raw, tmp_path):
-    pdf = make_pdf(raw / "PMC1.pdf", body_pages(1))
-    catalog = write_catalog(tmp_path / "c.csv", [catalog_row(pdf, pdf_md5="0" * 32)])
-
-    selected, skipped = select_papers(raw, load_catalog(catalog))
-
-    assert selected == []
-    assert [(s.name, s.reason) for s in skipped] == [("PMC1.pdf", "checksum doesn't match the catalog")]
+    assert kept == [
+        ["Hippocampal neurogenesis", "Page one text."],
+        ["Hippocampal neurogenesis", "Page two text."],
+        ["Page three text."],
+        ["Page four text."],
+    ]
 
 
-def test_IN3_corrupt_pdf_raises_parse_error(raw):
-    bad = raw / "PMC1.pdf"
-    bad.write_bytes(b"this is not a pdf")
-    with pytest.raises(ParseError):
-        parse_paper(bad, paper("PMC1"))
+def test_IN4_page_numbers_dropped_numbers_in_text_kept():
+    pages = [["7", "Page 7 of 37", "In 7 of 9 mice the effect was absent."]]
+
+    kept = body_lines(pages)
+
+    assert kept == [["In 7 of 9 mice the effect was absent."]]
 
 
-def test_IN3_pdf_without_text_gives_no_pages(raw):
-    empty = make_pdf(raw / "PMC1.pdf", [[], []])
-    assert parse_paper(empty, paper("PMC1")) == []
+def test_IN5_references_dropped_methods_after_them_kept():
+    pages = [
+        ["…memory was impaired.", "References", "1. Smith J. Neuron 2019;12:1–9."],
+        ["2. Lee K. Cell 2020;3:4–8.", "Methods", "Mice were trained for 5 days."],
+    ]
+    
+    kept = body_lines(pages)
+
+    assert kept == [
+        ["…memory was impaired."],
+        ["Methods", "Mice were trained for 5 days."],
+    ]
 
 
-# Chunks
+def test_IN6_lines_joined_keeping_hyphens():
+    lines = ["regulates fates through m6A-", "specific binding proteins and ﬁne", "control of   long-", "term potentiation."]
 
-def test_IN4_each_chunk_comes_from_one_page_and_keeps_its_number(raw):
-    pdf = make_pdf(raw / "PMC1.pdf", body_pages(3))
-    pages = parse_paper(pdf, paper("PMC1"))
+    text = join_lines(lines)
 
-    chunks = chunks_of(pages)
-
-    assert {c.page.page for c in chunks} == {1, 2, 3}
-    for c in chunks:
-        assert c.text in c.page.text
-        assert c.chunk_id.startswith(f"PMC1-p{c.page.page}-")
+    assert text == "regulates fates through m6A-specific binding proteins and fine control of long-term potentiation."
 
 
-def test_IN5_metadata_comes_from_the_catalog_not_the_pdf(raw):
-    pdf = make_pdf(raw / "PMC1.pdf", body_pages(1), title="Wrong title from PDF metadata")
-    pages = parse_paper(pdf, paper("PMC1", title="Catalog title"))
-    assert pages[0].paper.title == "Catalog title"
+def test_IN7_pages_keep_their_numbers(tmp_path):
+    pdf = tmp_path / "PMC0000007.pdf"
+    doc = pymupdf.open()
+    for text in ["Page 1", "Mice were trained for 5 days.", "Memory was impaired."]:
+        doc.new_page().insert_text((72, 72), text)
+    doc.save(pdf)
+    doc.close()
+
+    pages = parse_pdf(pdf, "PMC0000007")
+
+    assert pages == [
+        Page("PMC0000007", 2, "Mice were trained for 5 days."),
+        Page("PMC0000007", 3, "Memory was impaired."),
+    ]
 
 
-def test_IN6_headers_footers_and_page_numbers_are_removed(raw):
-    pages = [[(20, "Journal of Memory Research 2024"),     # top band
-              (100, f"Unique body {i}. {BODY}"),
-              (805, f"Page {i} of 4")]                       # bottom band
-             for i in range(1, 5)]
-    pdf = make_pdf(raw / "PMC1.pdf", pages)
+def test_IN8_tokenizer_counts_real_tokens():
+    count = TokenCounter()
 
-    text = " ".join(p.text for p in parse_paper(pdf, paper("PMC1")))
+    short = "m6A is abundant in the nervous system and modulates various neural functions6–11."
+    long = (
+        "Here we show that, through its binding protein Ythdf1, m6A promotes protein synthesis of target "
+        "transcripts in response to neuronal stimuli in the adult mouse hippocampus, thereby facilitating "
+        "learning and memory."
+    )
 
-    assert "Journal of Memory Research" not in text
-    assert "of 4" not in text
-    assert "Unique body 1" in text
-
-
-def test_IN6_running_title_below_the_margin_is_removed(raw):
-    pages = [[(60, "Raven et al. Cofilin and memory"), (200, f"Unique body {i}. {BODY}")] for i in range(1, 5)]
-    pdf = make_pdf(raw / "PMC1.pdf", pages)
-
-    text = " ".join(p.text for p in parse_paper(pdf, paper("PMC1")))
-
-    assert "Raven et al." not in text
-    assert "Unique body 4" in text
+    assert count(short) == 19
+    assert count(long) == 46
 
 
-def test_IN6_reference_list_is_removed(raw):
-    pages = [[(100, f"Discussion. {BODY}")],
-             [(100, "References"), (130, "1. Smith J. Place cells. J Neurosci. 2001;21:1-10.")],
-             [(100, "2. Jones K. Grid cells. Nature. 2005;436:801-6.")]]
-    pdf = make_pdf(raw / "PMC1.pdf", pages)
+def test_IN9_chunks_packed_from_sentences_with_overlap():
+    tokens = [112, 50, 19, 35, 46, 43, 75, 31, 37, 32]
+    sentences = [f"Sentence {i}." for i in range(len(tokens))]
+    count = dict(zip(sentences, tokens)).get
+    page = Page("PMC6226095", 2, " ".join(sentences))
 
-    text = " ".join(p.text for p in parse_paper(pdf, paper("PMC1")))
+    chunks = chunk_page(page, count, size=200, carry=50)
 
-    assert "Discussion" in text
-    assert "Smith J." not in text
-    assert "Jones K." not in text
-
-
-def test_IN6_text_after_references_resumes_at_methods(raw):
-    pages = [[(100, "References"), (130, "1. Smith J. Place cells. 2001.")],
-             [(100, "Methods"), (130, f"Mice were trained in a water maze. {BODY}")]]
-    pdf = make_pdf(raw / "PMC1.pdf", pages)
-
-    text = " ".join(p.text for p in parse_paper(pdf, paper("PMC1")))
-
-    assert "Smith J." not in text
-    assert "water maze" in text
+    assert [c.chunk_id for c in chunks[:3]] == ["PMC6226095-p2-c0", "PMC6226095-p2-c1", "PMC6226095-p2-c2"]
+    assert chunks[0].text == " ".join(sentences[0:3])
+    assert chunks[1].text == " ".join(sentences[2:6])
+    assert chunks[2].text == " ".join(sentences[5:9])
 
 
-def test_IN7_no_piece_exceeds_the_token_limit():
-    text = " ".join(["word"] * 500) + " " + "x" * 3000  # long text and one unbreakable "word"
-    count = len  # characters as tokens: the long word must be cut too
-    pieces = _fit(text, count, 100)
-    assert pieces
-    assert all(count(p) <= 100 for p in pieces)
+def test_IN10_long_sentence_cut_between_words():
+    count = TokenCounter()
+    sentence = (
+        "Here we show that, through its binding protein Ythdf1, m6A promotes protein synthesis of target "
+        "transcripts in response to neuronal stimuli in the adult mouse hippocampus, thereby facilitating "
+        "learning and memory."
+    )
+
+    chunks = chunk_page(Page("PMC6226095", 2, sentence), count, size=20)
+
+    assert [c.text for c in chunks] == [
+        "Here we show that, through its binding protein Ythdf1, m6A promotes protein synthesis",
+        "of target transcripts in response to neuronal stimuli in the adult mouse hippocampus,",
+        "thereby facilitating learning and memory.",
+    ]
 
 
-def test_IN7_chunks_fit_the_limit(raw):
-    pdf = make_pdf(raw / "PMC1.pdf", body_pages(2))
-    chunks = chunks_of(parse_paper(pdf, paper("PMC1")), size=40, overlap=10, max_tokens=45)
-    assert all(word_count(c.text) <= 45 for c in chunks)
+def test_IN11_same_pdf_same_chunks_and_ids():
+    count = TokenCounter()
 
+    def build():
+        pages = parse_pdf(Path("data/raw/PMC6226095.pdf"), "PMC6226095")
+        return [chunk for page in pages for chunk in chunk_page(page, count)]
 
-def test_IN8_same_input_gives_same_ids_and_text(raw):
-    pdf = make_pdf(raw / "PMC1.pdf", body_pages(3))
-
-    first = chunks_of(parse_paper(pdf, paper("PMC1")))
-    second = chunks_of(parse_paper(pdf, paper("PMC1")))
+    first, second = build(), build()
 
     assert [(c.chunk_id, c.text) for c in first] == [(c.chunk_id, c.text) for c in second]
-    assert len({c.chunk_id for c in first}) == len(first)
+    assert point_id("PMC6226095-p2-c0") == "002c0971-edeb-5036-86b6-779a589dc715"

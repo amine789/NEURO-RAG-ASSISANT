@@ -1,57 +1,74 @@
-"""Pages -> chunks that fit the embedding model, with stable IDs (IN-4, IN-7, IN-8)."""
-from collections.abc import Callable
+import re
 from dataclasses import dataclass
 
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from tokenizers import Tokenizer
 
+from neuro_rag.config import EMBED_MODEL
 from neuro_rag.ingest.parse import Page
 
 
 @dataclass(frozen=True)
 class Chunk:
-    chunk_id: str  # "<pmcid>-p<page>-c<n>"
-    page: Page
+    chunk_id: str
+    pmcid: str
+    page: int
     text: str
 
 
-def chunk_pages(
-    pages: list[Page],
-    count_tokens: Callable[[str], int],
-    max_tokens: int,
-    chunk_size: int,
-    chunk_overlap: int,
-) -> list[Chunk]:
-    """Split each page on its own, so a chunk never spans two pages.
+class TokenCounter:
+    def __init__(self, model: str = EMBED_MODEL):
+        self.tokenizer = Tokenizer.from_pretrained(model)
+        self.tokenizer.no_padding()
+        self.tokenizer.no_truncation()
 
-    Sizes are counted with `count_tokens` (the dense model's tokenizer). The
-    splitter prefers paragraph, then sentence, then word boundaries, but can
-    still overshoot on long unbroken text, so any chunk over `max_tokens` is
-    split again by words until it fits.
-    """
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        length_function=count_tokens,
-        separators=["\n\n", "\n", ". ", " ", ""],
-        keep_separator="end",
-    )
-    chunks = []
-    for page in pages:
-        texts = [t for piece in splitter.split_text(page.text) for t in _fit(piece, count_tokens, max_tokens)]
-        for n, text in enumerate(texts):
-            chunks.append(Chunk(f"{page.paper.pmcid}-p{page.page}-c{n}", page, text))
-    return chunks
+    def __call__(self, text: str) -> int:
+        return len(self.tokenizer.encode(text, add_special_tokens=False).ids)
 
 
-def _fit(text: str, count_tokens: Callable[[str], int], max_tokens: int) -> list[str]:
-    """`text` as one or more pieces of at most max_tokens, cut between words."""
-    text = text.strip()
-    if count_tokens(text) <= max_tokens:
-        return [text] if text else []
-    words = text.split(" ")
-    if len(words) == 1:  # one huge "word" (e.g. a sequence string): cut by characters
-        half = len(text) // 2
-        return _fit(text[:half], count_tokens, max_tokens) + _fit(text[half:], count_tokens, max_tokens)
-    half = len(words) // 2
-    return (_fit(" ".join(words[:half]), count_tokens, max_tokens)
-            + _fit(" ".join(words[half:]), count_tokens, max_tokens))
+def split_sentences(text: str) -> list[str]:
+    return [sentence for sentence in re.split(r"(?<=[.!?])\s+", text) if sentence]
+
+
+def make_units(text: str, count: TokenCounter, size: int) -> list[tuple[str, int]]:
+    units = []
+    for sentence in split_sentences(text):
+        tokens = count(sentence)
+        if tokens <= size:
+            units.append((sentence, tokens))
+            continue
+        piece = []
+        for word in sentence.split():
+            if piece and count(" ".join(piece + [word])) > size:
+                units.append((" ".join(piece), count(" ".join(piece))))
+                piece = []
+            piece.append(word)
+        if piece:
+            units.append((" ".join(piece), count(" ".join(piece))))
+    return units
+
+
+def pack_units(units: list[tuple[str, int]], size: int, carry: int) -> list[str]:
+    texts = []
+    current = []
+    total = 0
+    for text, tokens in units:
+        if current and total + tokens > size:
+            texts.append(" ".join(t for t, _ in current))
+            last_text, last_tokens = current[-1]
+            if last_tokens <= carry and last_tokens + tokens <= size:
+                current = [(last_text, last_tokens)]
+                total = last_tokens
+            else:
+                current = []
+                total = 0
+        current.append((text, tokens))
+        total += tokens
+    if current:
+        texts.append(" ".join(t for t, _ in current))
+    return texts
+
+
+def chunk_page(page: Page, count: TokenCounter, size: int = 200, carry: int = 50) -> list[Chunk]:
+    units = make_units(page.text, count, size)
+    texts = pack_units(units, size, carry)
+    return [Chunk(f"{page.pmcid}-p{page.page}-c{n}", page.pmcid, page.page, text) for n, text in enumerate(texts)]

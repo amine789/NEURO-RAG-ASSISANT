@@ -1,37 +1,19 @@
 [project]
 name = "neuro-rag"
 version = "0.1.0"
-description = "Corrective RAG over hippocampus and memory papers"
 requires-python = ">=3.11"
-dependencies = [
-    "anthropic>=1.8",
-    "fastapi>=0.141",
-    "fastembed>=0.9",
-    "langchain-text-splitters>=1.1",
-    "langfuse>=4.17",
-    "pymupdf>=1.28",
-    "python-dotenv>=1.2",
-    "qdrant-client>=1.19",
-    "requests>=2.32",
-    "sentence-transformers>=4.1",
-    "uvicorn>=0.54",
-]
+dependencies = ["pymupdf", "tokenizers", "qdrant-client", "fastembed"]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.1"]
+dev = ["pytest"]
 
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/neuro_rag"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Tests that call Claude cost money, so they only run when asked for: pytest -m llm
-addopts = "-m 'not llm'"
-markers = [
-    "integration: needs a running Qdrant (docker compose up -d)",
-    "llm: calls the real Claude API (costs money); run with -m llm",
-]
+markers = ["integration: needs the running Qdrant from docker compose"]
