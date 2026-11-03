@@ -1,14 +1,13 @@
 import re
-from collections import Counter
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-import pymupdf
+import requests
 
-PAGE_NUMBER = re.compile(r"^(page\s+)?\d{1,4}(\s+of\s+\d{1,4})?$", re.IGNORECASE)
-REFERENCES_START = re.compile(r"^(\d+\.?\s*)?(references|bibliography|literature cited)$", re.IGNORECASE)
-REFERENCES_END = re.compile(r"^(\d+\.?\s*)?(methods|online methods)$", re.IGNORECASE)
-LIGATURES = {"ﬁ": "fi", "ﬂ": "fl", "ﬀ": "ff", "ﬃ": "ffi", "ﬄ": "ffl"}
+from neuro_rag.config import GROBID_URL, TEI_DIR
+
+TEI = "{http://www.tei-c.org/ns/1.0}"
 
 
 @dataclass(frozen=True)
@@ -22,64 +21,57 @@ class ParseError(Exception):
     pass
 
 
-def body_lines(pages: list[list[str]]) -> list[list[str]]:
-    repeated = set()
-    if len(pages) >= 3:
-        counts = Counter(line for page in pages for line in set(page))
-        repeated = {line for line, n in counts.items() if n > len(pages) / 2}
+def grobid_tei(path: Path, tei_dir: Path = TEI_DIR) -> Path:
+    tei = tei_dir / f"{path.stem}.tei.xml"
+    if tei.exists() and tei.stat().st_size > 0:
+        return tei
+    with open(path, "rb") as f:
+        response = requests.post(
+            f"{GROBID_URL}/api/processFulltextDocument",
+            files={"input": f},
+            data={"teiCoordinates": ["p", "head", "figure"]},
+            timeout=600,
+        )
+    if response.status_code != 200:
+        raise ParseError(f"can't open {path.name}: GROBID returned {response.status_code} {response.text[:100]}")
+    tei_dir.mkdir(parents=True, exist_ok=True)
+    tei.write_text(response.text, encoding="utf-8")
+    return tei
 
+
+def kept_elements(root: ET.Element) -> list[tuple[ET.Element, str | None]]:
     kept = []
-    in_references = False
-    for page in pages:
-        page_kept = []
-        for line in page:
-            if line in repeated or PAGE_NUMBER.match(line):
-                continue
-            if REFERENCES_START.match(line):
-                in_references = True
-                continue
-            if in_references:
-                if REFERENCES_END.match(line):
-                    in_references = False
-                else:
-                    continue
-            page_kept.append(line)
-        kept.append(page_kept)
+    for abstract in root.iter(TEI + "abstract"):
+        kept += [(p, p.get("coords")) for p in abstract.iter(TEI + "p")]
+
+    def walk(element):
+        for child in element:
+            if child.tag == TEI + "figure":
+                kept.extend((d, child.get("coords")) for d in child.iter(TEI + "figDesc"))
+            elif child.tag in (TEI + "p", TEI + "head"):
+                kept.append((child, child.get("coords")))
+            else:
+                walk(child)
+
+    for body in root.iter(TEI + "body"):
+        walk(body)
     return kept
 
 
-def join_lines(lines: list[str]) -> str:
-    text = ""
-    for line in lines:
-        if text == "":
-            text = line
-        elif len(text) >= 2 and text[-1] == "-" and text[-2].isalnum():
-            text += line
-        else:
-            text += " " + line
-    for ligature, letters in LIGATURES.items():
-        text = text.replace(ligature, letters)
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def parse_pdf(path: Path, pmcid: str) -> list[Page]:
-    try:
-        doc = pymupdf.open(path)
-    except Exception as e:
-        raise ParseError(f"can't open {path.name}: {e}")
-
-    with doc:
-        raw = []
-        for pdf_page in doc:
-            lines = [line.strip() for line in pdf_page.get_text().split("\n")]
-            raw.append([line for line in lines if line])
-
-    pages = []
-    for number, lines in enumerate(body_lines(raw), start=1):
-        text = join_lines(lines)
+def tei_pages(tei: Path, pmcid: str) -> list[Page]:
+    texts = {}
+    page = 1
+    for element, coords in kept_elements(ET.parse(tei).getroot()):
+        if coords:
+            page = int(coords.split(",")[0])
+        text = re.sub(r"\s+", " ", "".join(element.itertext())).strip()
         if text:
-            pages.append(Page(pmcid, number, text))
+            texts.setdefault(page, []).append(text)
+    return [Page(pmcid, number, " ".join(parts)) for number, parts in sorted(texts.items())]
 
+
+def parse_pdf(path: Path, pmcid: str, tei_dir: Path = TEI_DIR) -> list[Page]:
+    pages = tei_pages(grobid_tei(path, tei_dir), pmcid)
     if not pages:
         raise ParseError(f"no text in {path.name}")
     return pages

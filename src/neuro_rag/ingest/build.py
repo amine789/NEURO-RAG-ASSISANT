@@ -5,20 +5,22 @@ from pathlib import Path
 from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
 
-from neuro_rag.config import CATALOG_PATH, COLLECTION, EMBED_MODEL, QDRANT_URL, RAW_DIR
+from neuro_rag.config import CATALOG_PATH, COLLECTION, EMBED_MODEL, QDRANT_URL, RAW_DIR, TEI_DIR
 from neuro_rag.ingest.catalog import Paper, load_catalog, select_papers
 from neuro_rag.ingest.chunk import TokenCounter, chunk_page
 from neuro_rag.ingest.index import recreate_collection, write_chunks
 from neuro_rag.ingest.parse import ParseError, parse_pdf
 
 
-def build(catalog: dict[str, Paper], raw_dir: Path, client: QdrantClient, embed, name: str = COLLECTION) -> tuple[int, int, int]:
+def build(
+    catalog: dict[str, Paper], raw_dir: Path, client: QdrantClient, embed, name: str = COLLECTION, tei_dir: Path = TEI_DIR
+) -> tuple[int, int, int]:
     papers = select_papers(raw_dir, catalog)
 
     pages = []
     for path, paper in papers:
         try:
-            pages += parse_pdf(path, paper.pmcid)
+            pages += parse_pdf(path, paper.pmcid, tei_dir)
         except ParseError as e:
             print(e)
 

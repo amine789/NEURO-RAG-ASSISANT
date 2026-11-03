@@ -15,29 +15,31 @@ an answer can cite "paper, page".
   - the catalog `data/candidates.csv`: 66 rows, 52 with `keep=yes`. Columns:
     `keep, pmcid, title, citation, license, pdf_url, pdf_md5`; ingest reads
     `keep, pmcid, title, citation, license`;
-  - the PDFs in `data/raw/`, named `<pmcid>.pdf` (52 files, 826 pages).
+  - the PDFs in `data/raw/`, named `<pmcid>.pdf` (52 files, 826 pages);
+  - GROBID's output for each PDF, saved in `data/tei/<pmcid>.tei.xml` the
+    first time a PDF is parsed and reused after that.
 - **Out:** the Qdrant collection `papers`, one point per chunk, and a report
   printed at the end of the build.
 - **Runs:** offline, on the laptop, as one command against a local Qdrant
   container:
   ```
-  docker compose up -d
+  docker compose --profile ingest up -d     # Qdrant and GROBID
   python -m neuro_rag.ingest.build
   ```
 
 ```
 candidates.csv ─┐
-                ├─► select papers ─► for each PDF: pages ─► clean lines ─► chunks ─► embed ─► Qdrant "papers"
-data/raw/*.pdf ─┘    (keep=yes)        (PyMuPDF)     (drop headers,     (≤ 200     (384
-                                                      page numbers,      tokens)    numbers)
-                                                      references)
+                ├─► select papers ─► for each PDF: GROBID ─► kept parts ─► chunks ─► embed ─► Qdrant "papers"
+data/raw/*.pdf ─┘    (keep=yes)        (TEI XML, saved     (abstract,     (≤ 200     (384
+                                         in data/tei/)      body, figure    tokens)    numbers)
+                                                            captions)
 ```
 
 ## Settings
 
 | Setting | Value | Why |
 |---|---|---|
-| PDF reader | PyMuPDF, `page.get_text()` | plain text per page, in the PDF's own order; fast, one dependency |
+| PDF reader | GROBID `0.9.1-crf` in Docker, `/api/processFulltextDocument` with `teiCoordinates` `p`, `head`, `figure` | a model trained on scientific papers tags each part (heading, paragraph, figure caption, reference, back matter) and gives its page; measured against PMC's own XML (choice 2) |
 | embedding model | `sentence-transformers/all-MiniLM-L6-v2` through FastEmbed (ONNX), 384 numbers | small, fast on a CPU, no PyTorch in the deployed image |
 | token counter | the same model's tokenizer (`tokenizers` library), padding and truncation turned off | the limit that matters is the model's: 256 tokens, beyond which it silently ignores the rest |
 | chunk size | at most 200 tokens | below the 256 limit, with room for the 2 tokens the model adds |
@@ -52,16 +54,16 @@ data/raw/*.pdf ─┘    (keep=yes)        (PyMuPDF)     (drop headers,     (≤
 
 | File | Contents |
 |---|---|
-| `pyproject.toml` | package `neuro-rag`, Python ≥ 3.11; dependencies `pymupdf`, `fastembed`, `qdrant-client`, `python-dotenv`; dev dependency `pytest` |
-| `docker-compose.yml` | one service `qdrant`, image `qdrant/qdrant:v1.19.1`, port 6333, a named volume for storage |
-| `src/neuro_rag/config.py` | paths (`DATA_DIR`, `CATALOG_PATH`, `RAW_DIR`), `QDRANT_URL` from the environment (default `http://localhost:6333`), `COLLECTION = "papers"`, `EMBED_MODEL`, `EMBED_SIZE = 384`, `CHUNK_TOKENS = 200`, `CARRY_TOKENS = 50`, `BATCH = 64` |
+| `pyproject.toml` | package `neuro-rag`, Python ≥ 3.11; dependencies `requests`, `tokenizers`, `fastembed`, `qdrant-client`; dev dependency `pytest` |
+| `docker-compose.yml` | service `qdrant`, image `qdrant/qdrant:v1.19.1`, port 6333, a named volume; service `grobid`, image `grobid/grobid:0.9.1-crf`, port 8070, profile `ingest` (started only for a build) |
+| `src/neuro_rag/config.py` | paths (`DATA_DIR`, `CATALOG_PATH`, `RAW_DIR`, `TEI_DIR`), `QDRANT_URL` and `GROBID_URL` from the environment (defaults `http://localhost:6333`, `http://localhost:8070`), `COLLECTION = "papers"`, `EMBED_MODEL`, `EMBED_SIZE = 384`, `CHUNK_TOKENS = 200`, `CARRY_TOKENS = 50`, `BATCH = 64` |
 | `src/neuro_rag/ingest/catalog.py` | `Paper`, `load_catalog`, `select_papers` |
-| `src/neuro_rag/ingest/parse.py` | `Page`, `ParseError`, `body_lines`, `join_lines`, `parse_pdf` |
+| `src/neuro_rag/ingest/parse.py` | `Page`, `ParseError`, `grobid_tei`, `kept_elements`, `tei_pages`, `parse_pdf` |
 | `src/neuro_rag/ingest/chunk.py` | `Chunk`, `TokenCounter`, `split_sentences`, `chunk_page` |
 | `src/neuro_rag/ingest/index.py` | `point_id`, `recreate_collection`, `write_chunks` |
-| `src/neuro_rag/ingest/build.py` | `main()`: runs everything and prints the report |
+| `src/neuro_rag/ingest/build.py` | `build()` and `main()`: runs everything and prints the report |
 | `tests/test_ingest.py` | unit tests, no Qdrant needed |
-| `tests/test_ingest_index.py` | tests against the running Qdrant, marked `integration` |
+| `tests/test_ingest_index.py` | tests against the running Qdrant and GROBID, marked `integration` |
 
 ### `catalog.py`: which PDFs are built
 
@@ -98,59 +100,48 @@ class Page:
 
 class ParseError(Exception): ...
 
-def body_lines(pages: list[list[str]]) -> list[list[str]]   # drops non-body lines; same shape in, same shape out
-def join_lines(lines: list[str]) -> str                     # one page's kept lines -> one clean string
-def parse_pdf(path: Path, pmcid: str) -> list[Page]
+def grobid_tei(path: Path, tei_dir: Path = TEI_DIR) -> Path                    # the saved TEI file; calls GROBID only if it is missing
+def kept_elements(root: ET.Element) -> list[tuple[ET.Element, str | None]]      # (element, coords) in reading order
+def tei_pages(tei: Path, pmcid: str) -> list[Page]
+def parse_pdf(path: Path, pmcid: str, tei_dir: Path = TEI_DIR) -> list[Page]   # grobid_tei, then tei_pages
 ```
 
-**`parse_pdf` steps:**
-1. Open with `pymupdf.open(path)`. Any exception → `ParseError(f"can't open {path.name}: {e}")`.
-2. For each page: `page.get_text()`, split on line breaks, strip each line,
-   drop empty lines. Result: one list of lines per page.
-3. `body_lines(...)` on all pages at once (the rules need the whole paper).
-4. For each page, `join_lines(lines)`. A page whose text is empty is dropped.
-   Page numbers are kept as they were in step 2: dropping page 1 doesn't
-   renumber page 2.
-5. No page left at all → `ParseError(f"no text in {path.name}")`.
+**`grobid_tei` steps:**
+1. If `tei_dir/<pmcid>.tei.xml` exists and isn't empty, return it: GROBID is
+   not called again. The 52 saved files are in `data/tei/` (outside git);
+   making them takes about 25 minutes, reading them under a second.
+2. Otherwise POST the PDF to `GROBID_URL/api/processFulltextDocument` as the
+   form field `input`, with `teiCoordinates` = `p`, `head`, `figure`, timeout
+   600 s.
+3. A status other than 200 → `ParseError(f"can't open {path.name}: GROBID returned {status} {first 100 characters}")`.
+   For the bytes "not a pdf" GROBID returns 500 "[BAD_INPUT_DATA] PDF to XML
+   conversion failed".
+4. Write the response to the file and return it.
 
-**`body_lines` rules,** applied in this order to each line, page by page,
-first page to last:
-1. **Repeated line:** a line that appears on more than half of the paper's
-   pages (counted once per page) is dropped everywhere. Only for papers with
-   3 pages or more.
-   Example, PMC6226095 (37 pages): "Nature. Author manuscript; available in PMC
-   2019 April 30." is on 37 pages and "Shi et al." on 36; both are dropped.
-2. **Page number:** a line matching `^(page\s+)?\d{1,4}(\s+of\s+\d{1,4})?$`,
-   ignoring case, is dropped: "7", "Page 7", "Page 7 of 37".
-3. **Reference list start:** a line matching
-   `^(\d+\.?\s*)?(references|bibliography|literature cited)$`, ignoring case,
-   is dropped and switches to "in references": "References", "REFERENCES",
-   "5. References".
-4. **Reference list end:** while in references, a line matching
-   `^(\d+\.?\s*)?(methods|online methods)$`, ignoring case, switches back and is kept.
-   Every other line in references is dropped. "In references" carries over
-   from one page to the next.
+**`kept_elements`: which parts are kept, by their TEI tag:**
 
-   Why rule 4: four Nature-style papers (PMC11848949, PMC12229897, PMC13156042,
-   PMC13533836) print their Methods after the reference list. In PMC12229897
-   the references start on page 8 of 28 and "Methods" is on page 10; without
-   rule 4 the Methods would be lost. A second reference list after the Methods
-   is dropped again by rule 3.
+| Kept | Dropped |
+|---|---|
+| every `<p>` in `<abstract>` | everything in `<back>`: the reference list (`<listBibl>`), acknowledgements and other back matter |
+| every `<head>` and `<p>` in `<body>`, in reading order | inside a `<figure>`: its `<head>`, `<label>`, tables and any text GROBID read off the image (axis ticks, panel letters) |
+| every `<figDesc>` (figure caption) in `<body>` | the title page block (`<teiHeader>` other than the abstract) |
 
-On the 52 papers these rules drop 6,028 repeated lines, 4,614 page-number lines,
-55 reference headings and 15,135 reference lines.
+Inline tags inside a kept element stay as text: `<ref type="bibr">[1]</ref>`
+gives "[1]".
 
-**`join_lines` steps:**
-1. Join the lines in order. Between two lines put one space, except when the
-   first ends with "-" right after a letter or digit: then join with nothing, so
-   the hyphen stays and no space is added.
-   Example: "…through m6A-" + "specific binding proteins" →
-   "…through m6A-specific binding proteins"; "long-" + "term potentiation" →
-   "long-term potentiation". (A word broken only by hyphenation, "hippo-" +
-   "campus", becomes "hippo-campus"; that is accepted, see choice 5.)
-2. Replace the ligature characters: "ﬁ" → "fi", "ﬂ" → "fl", "ﬀ" → "ff",
-   "ﬃ" → "ffi", "ﬄ" → "ffl".
-3. Replace every run of whitespace with one space; strip both ends.
+**`tei_pages` steps:**
+1. For each kept element in order, its page is the first number of its
+   `coords` (`"3,90.0,504.3,55.8,11.1;4,…"` → 3); a `<figDesc>` uses its
+   `<figure>`'s coords. An element with no coords takes the page of the
+   element before it (page 1 if none). On the 52 papers, 360 of 3,931 kept
+   elements have no coords, mostly section headings.
+2. Its text is all its text joined (`"".join(element.itertext())`), every run
+   of whitespace replaced by one space, stripped.
+3. Texts on the same page are joined with one space, in order, into one
+   `Page`. Pages with no kept text don't appear; page numbers are never
+   renumbered.
+
+`parse_pdf`: no page at all → `ParseError(f"no text in {path.name}")`.
 
 ### `chunk.py`: from a page to chunks
 
@@ -194,8 +185,9 @@ without measuring anything.
 4. At the end, the last chunk is closed if it has any unit.
 5. IDs: `f"{page.pmcid}-p{page.page}-c{n}"`, `n` = 0, 1, 2… in order.
 
-**Worked example: PMC6226095, page 2.** After cleaning, its first sentences
-have these token counts:
+**Worked example: a page with ten sentences.** The token counts are those of
+PMC6226095 page 2 under the earlier PyMuPDF parse; with GROBID that page
+starts differently, so the example is illustrative:
 
 | Unit | Starts with | Tokens |
 |---|---|---|
@@ -220,8 +212,8 @@ have these token counts:
 c1 starts with "m6A is abundant in the nervous system…", the sentence c0 ends
 with, so a question matching that sentence finds it whole in either chunk.
 
-**On the whole corpus:** 642 pages with text, **4,431 chunks**, largest 200
-tokens, median 179; 10% of chunks have 119 tokens or fewer (page ends).
+**On the whole corpus:** 628 pages with text, **4,313 chunks**, largest 200
+tokens.
 
 ### `index.py`: into Qdrant
 
@@ -281,7 +273,7 @@ and `build` does, in order:
 
 **The report** for the 52 papers:
 ```
-built 52 papers, 642 pages, 4431 chunks into "papers" in 41.2 s
+built 52 papers, 628 pages, 4313 chunks into "papers" in 41.2 s
 ```
 (41.2 s is only an illustration of the format; the time isn't checked.)
 
@@ -291,18 +283,26 @@ built 52 papers, 642 pages, 4431 chunks into "papers" in 41.2 s
    here it is a candidate for row 8 "Better search", added only if the eval
    shows it helps. The collection is recreated by every build, so adding a
    second vector later costs nothing.
-2. **Plain PyMuPDF text, no layout handling.** No column detection, no table
-   or figure removal, no font-based headings (v2 had all of these, in 150
-   lines). Known noise that stays: affiliations (s0 above), figure captions,
-   table cells. The eval measures what that noise costs before anything is
-   added.
-3. **Repeated lines and page numbers are dropped,** two short rules that
-   remove about 10,600 lines of headers, footers and page numbers.
-4. **References dropped up to "Methods",** so the four Nature-style papers
-   keep their Methods.
-5. **A hyphen at a line end is kept** ("long-term", "m6A-specific"). Removing
-   it would also merge real compound words ("longterm"); the cost is the
-   occasional "hippo-campus".
+2. **GROBID, not hand-written PDF rules.** The first version read plain
+   PyMuPDF text and dropped headers, page numbers and references with
+   regexes; a scan of the 52 papers (2026-11-02) showed those rules guess at
+   layout and lost figure legends in about 10 papers and kept back matter in
+   42. GROBID tags each part instead. Measured against PMC's own XML for the
+   same papers (`data/grobid_check/compare_all.py`, word counts of abstract,
+   body and captions): **median recall 97.8%, median precision 95.9%**; 37 of
+   52 papers are at or above 85% on both. All 52 are kept (accepted
+   2026-11-03); the eval (row 4) decides whether the weakest need more work.
+   Known faults: PMC5053807 recall 47%; PMC5406700 precision 66%; in
+   PMC6226095 "m6A" comes out as "m 6 A" (the "6" read as a citation) and its
+   abstract is the PMC licence notice. The `crf` image (0.5 GB, CPU) is used
+   instead of `full` (14.8 GB, wants a GPU).
+3. **Parts are kept or dropped by tag** (the table in `parse.py`), with no
+   rules about ordering: references and back matter are wherever GROBID
+   finds them.
+4. **A paragraph's page is the page it starts on.** A paragraph running over
+   two pages is cited to the first.
+5. **GROBID's output is saved and reused.** It is the slow step (about 30 s a
+   paper); saving it makes every later build a few seconds of parsing.
 6. **Chunks of at most 200 tokens, packed from sentences, with a one-sentence
    overlap of at most 50 tokens.** v2 used a library splitter
    (`RecursiveCharacterTextSplitter`, 200 / 64); the rule here is written
@@ -333,8 +333,8 @@ How each one is checked is in [validation.md](validation.md).
   license, so an answer couldn't cite it properly.
 
 **IN-2: a PDF that can't be read is reported, and the build continues.**
-- **Given** a file `PMC0000002.pdf` holding the bytes "not a pdf", and a
-  readable PDF next to it.
+- **Given** a file `PMC0000002.pdf` holding the bytes "not a pdf", no saved
+  TEI for it, GROBID running, and a readable paper next to it.
 - **When** `parse_pdf` runs on the first, and the build runs on both.
 - **Then** `parse_pdf` raises `ParseError` with a message starting "can't open
   PMC0000002.pdf", and the build prints that message and still builds the
@@ -343,49 +343,51 @@ How each one is checked is in [validation.md](validation.md).
 
 ### Clean pages
 
-**IN-3: lines on more than half of a paper's pages are dropped.**
-- **Given** a 4-page paper where "Shi et al." is on pages 1, 2 and 3, and
-  "Hippocampal neurogenesis" on pages 1 and 2 only.
-- **When** `body_lines` runs.
-- **Then** "Shi et al." is gone from every page (3 of 4 is more than half),
-  and "Hippocampal neurogenesis" stays (2 of 4 is not).
-- **Why:** running headers ("Nature. Author manuscript…", the authors' names)
-  repeated in hundreds of chunks would make many chunks look alike and match
-  questions on journal names instead of content.
-
-**IN-4: page-number lines are dropped, numbers inside text are not.**
-- **Given** a page with the lines "7", "Page 7 of 37", and "In 7 of 9 mice
-  the effect was absent."
-- **When** `body_lines` runs.
-- **Then** the first two are dropped and the third is kept.
-- **Why:** a page number is noise in a chunk; a number in a sentence is content.
-
-**IN-5: the reference list is dropped, and a Methods section after it is kept.**
-- **Given** a paper whose page 2 has "…memory was impaired.", "References",
-  "1. Smith J. Neuron 2019;12:1–9.", and whose page 3 has "2. Lee K. Cell
-  2020;3:4–8.", "Methods", "Mice were trained for 5 days."
-- **When** `body_lines` runs.
-- **Then** page 2 keeps only "…memory was impaired." and page 3 keeps
-  "Methods" and "Mice were trained for 5 days."
-- **Why:** a reference list is 15,000 lines of titles of other papers; its
-  chunks would match many questions while saying nothing this paper found.
-  Four papers put their Methods after the references, and those are content.
-
-**IN-6: lines are joined into clean text, keeping hyphens.**
-- **Given** the lines "regulates fates through m6A-", "specific binding
-  proteins and ﬁne", "control of   long-", "term potentiation."
-- **When** `join_lines` runs.
-- **Then** the result is "regulates fates through m6A-specific binding proteins
-  and fine control of long-term potentiation."
-- **Why:** a word split at a line end must come back as one word ("m6A-specific",
-  not "m6A- specific"), or neither search nor the answer would see it.
-
-**IN-7: each page keeps its own number, even when earlier pages are dropped.**
-- **Given** a 3-page PDF whose page 1 has no text left after `body_lines`.
+**IN-3: the abstract, body and figure captions are kept; references, back matter and figure internals are dropped.**
+- **Given** a TEI file with the abstract paragraph "Sleep helps memory." (page
+  1), the heading "Results" and paragraph "Mice were trained for 5 days."
+  (page 2), a figure (page 3) with head "Figure 1", label "0 20 40" and
+  caption "Ythdf1-KO mice learn more slowly.", and in `<back>` the
+  acknowledgement "We thank the lab." and one reference.
 - **When** `parse_pdf` runs.
-- **Then** it returns 2 pages, numbered 2 and 3.
-- **Why:** the page is what the answer cites; renumbering would send the
-  reader to the wrong page.
+- **Then** it returns page 1 "Sleep helps memory.", page 2 "Results Mice were
+  trained for 5 days." and page 3 "Ythdf1-KO mice learn more slowly.", and
+  nothing else.
+- **Why:** references and acknowledgements describe other papers and the
+  authors, not this paper's findings; axis ticks are noise. The caption says
+  what a figure shows.
+
+**IN-4: each part is on the page it starts on, and pages are never renumbered.**
+- **Given** a TEI body with a paragraph "Starts on page 3." whose coords are
+  `3,…;4,…`, then a heading "No coordinates." with no coords, then a
+  paragraph "On page 5." with coords `5,…`.
+- **When** `parse_pdf` runs.
+- **Then** it returns page 3 "Starts on page 3. No coordinates." and page 5
+  "On page 5.".
+- **Why:** the page is what the answer cites; a wrong page sends the reader to
+  the wrong place.
+
+**IN-5: whitespace is squeezed, and inline tags stay as text.**
+- **Given** the paragraph `Learning   requires⏎ protein <ref type="bibr">[1]</ref> synthesis.`
+- **When** `parse_pdf` runs.
+- **Then** the page text is "Learning requires protein [1] synthesis."
+- **Why:** line breaks and runs of spaces come from the layout, not the text.
+
+**IN-6: a saved GROBID output is reused, without calling GROBID.**
+- **Given** a saved `PMC0000006.tei.xml` with the paragraph "Saved." and no
+  PDF and no GROBID.
+- **When** `parse_pdf` runs.
+- **Then** it returns page 1 "Saved.".
+- **Why:** GROBID takes about 25 minutes for the 52 papers; a rebuild after a
+  chunking change shouldn't repeat that.
+
+**IN-7: a paper with no kept text raises an error.**
+- **Given** a saved TEI that holds only a reference list.
+- **When** `parse_pdf` runs.
+- **Then** it raises `ParseError` with a message starting "no text in
+  PMC0000007.pdf".
+- **Why:** a paper that gives no chunks should be reported, not silently
+  missing from the index.
 
 ### Chunks
 
@@ -449,7 +451,7 @@ How each one is checked is in [validation.md](validation.md).
 **IN-13: a build replaces the collection, it doesn't add to it.**
 - **Given** a collection `papers` holding 10 points from an earlier build.
 - **When** the build runs on the 52 papers.
-- **Then** the collection holds exactly 4,431 points, the number of chunks
+- **Then** the collection holds exactly 4,313 points, the number of chunks
   built, and none of the old 10 remain unless rebuilt.
 - **Why:** leftover points from an older build would be found by search and
   cited, with text that no longer matches the current rules.
@@ -457,7 +459,7 @@ How each one is checked is in [validation.md](validation.md).
 **IN-14: the full build reports what it did.**
 - **Given** the 52 PDFs and the catalog.
 - **When** `python -m neuro_rag.ingest.build` runs.
-- **Then** it prints "built 52 papers, 642 pages, 4431 chunks into "papers"
+- **Then** it prints "built 52 papers, 628 pages, 4313 chunks into "papers"
   in … s" and exits with code 0.
 - **Why:** the counts are the first sign something changed: a different number
   of chunks after a code change, or after a PDF was replaced, means something

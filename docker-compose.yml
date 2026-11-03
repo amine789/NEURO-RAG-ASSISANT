@@ -6,5 +6,11 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
+  grobid:
+    image: grobid/grobid:0.9.1-crf
+    profiles: ["ingest"]
+    ports:
+      - "8070:8070"
+
 volumes:
   qdrant_storage:

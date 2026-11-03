@@ -1,4 +1,3 @@
-import pymupdf
 import pytest
 from qdrant_client import QdrantClient
 
@@ -48,13 +47,14 @@ def test_IN12_point_holds_text_vector_paper_and_page():
 def test_IN2_build_continues_after_parse_error(tmp_path, capsys):
     client = QdrantClient(url=QDRANT_URL)
     (tmp_path / "PMC0000002.pdf").write_bytes(b"not a pdf")
-    doc = pymupdf.open()
-    doc.new_page().insert_text((72, 72), "Mice were trained for 5 days.")
-    doc.save(tmp_path / "PMC0000003.pdf")
-    doc.close()
+    (tmp_path / "PMC0000003.pdf").write_bytes(b"%PDF placeholder, already parsed")
+    (tmp_path / "PMC0000003.tei.xml").write_text(
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0"><text><body><div>'
+        '<p coords="1,0,0,0,0">Mice were trained for 5 days.</p></div></body></text></TEI>'
+    )
     catalog = {pmcid: Paper(pmcid, "Title", "Citation", "CC BY") for pmcid in ["PMC0000002", "PMC0000003"]}
 
-    papers, pages, chunks = build(catalog, tmp_path, client, fake_embed, TEST_COLLECTION)
+    papers, pages, chunks = build(catalog, tmp_path, client, fake_embed, TEST_COLLECTION, tei_dir=tmp_path)
 
     assert capsys.readouterr().out.startswith("can't open PMC0000002.pdf")
     assert (papers, pages, chunks) == (1, 1, 1)
@@ -69,7 +69,7 @@ def test_IN13_build_replaces_the_collection():
 
     papers, pages, chunks = build(load_catalog(CATALOG_PATH), RAW_DIR, client, fake_embed, TEST_COLLECTION)
 
-    assert (papers, pages, chunks) == (52, 642, 4431)
-    assert client.count(TEST_COLLECTION, exact=True).count == 4431
+    assert (papers, pages, chunks) == (52, 628, 4313)
+    assert client.count(TEST_COLLECTION, exact=True).count == 4313
     assert client.retrieve(TEST_COLLECTION, [point_id(c.chunk_id) for c in old]) == []
     client.delete_collection(TEST_COLLECTION)

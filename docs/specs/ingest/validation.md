@@ -6,23 +6,24 @@ The examples are in the spec; this file says where each one runs.
 ## Checks
 
 - **Unit test** (`tests/test_ingest.py`): small inputs written in the test
-  (lines, pages, a fake token counter, a tiny PDF made with PyMuPDF in a
-  temporary folder) and, for IN-8, IN-10 and IN-11, the real tokenizer and
-  the real PMC6226095.pdf. No Qdrant.
+  (small TEI files in a temporary folder, pages, a fake token counter) and,
+  for IN-8, IN-10 and IN-11, the real tokenizer and the saved TEI of
+  PMC6226095. No Qdrant, no GROBID, except IN-2's first test (marked
+  `integration`), which needs GROBID.
 - **Integration test** (`tests/test_ingest_index.py`, marked `integration`):
-  the running Qdrant from `docker compose up -d`, a test collection, and a
-  fake embedder returning 384 numbers.
+  the running Qdrant and GROBID from `docker compose --profile ingest up -d`,
+  a test collection, and a fake embedder returning 384 numbers.
 - **Full build:** `python -m neuro_rag.ingest.build` on the 52 papers.
 
 | Criterion | Kind | Test |
 |---|---|---|
 | IN-1 | unit | `test_IN1_paper_not_kept_is_not_selected` |
-| IN-2 | unit + integration | `test_IN2_unreadable_pdf_raises_parse_error` (unit, parse_pdf half), `test_IN2_build_continues_after_parse_error` (integration, build half) |
-| IN-3 | unit | `test_IN3_lines_on_most_pages_are_dropped` |
-| IN-4 | unit | `test_IN4_page_numbers_dropped_numbers_in_text_kept` |
-| IN-5 | unit | `test_IN5_references_dropped_methods_after_them_kept` |
-| IN-6 | unit | `test_IN6_lines_joined_keeping_hyphens` |
-| IN-7 | unit | `test_IN7_pages_keep_their_numbers` |
+| IN-2 | integration | `test_IN2_unreadable_pdf_raises_parse_error` (parse_pdf half), `test_IN2_build_continues_after_parse_error` (build half) |
+| IN-3 | unit | `test_IN3_body_and_captions_kept_references_and_back_matter_dropped` |
+| IN-4 | unit | `test_IN4_page_from_coordinates` |
+| IN-5 | unit | `test_IN5_whitespace_squeezed_inline_tags_kept` |
+| IN-6 | unit | `test_IN6_saved_grobid_output_is_reused` |
+| IN-7 | unit | `test_IN7_no_kept_text_raises_parse_error` |
 | IN-8 | unit | `test_IN8_tokenizer_counts_real_tokens` |
 | IN-9 | unit | `test_IN9_chunks_packed_from_sentences_with_overlap` |
 | IN-10 | unit | `test_IN10_long_sentence_cut_between_words` |
@@ -33,8 +34,8 @@ The examples are in the spec; this file says where each one runs.
 
 Commands:
 ```
-pytest tests/test_ingest.py -v
-docker compose up -d && pytest tests/test_ingest_index.py -m integration -v
+pytest tests/test_ingest.py -m "not integration" -v
+docker compose --profile ingest up -d && pytest tests/ -m integration -v
 python -m neuro_rag.ingest.build
 ```
 
@@ -56,3 +57,6 @@ python -m neuro_rag.ingest.build
 | 2026-11-01 | v3, uncommitted | IN-1, IN-2 (parse_pdf half), IN-3 to IN-12 passed | 11 unit + 1 integration passed; IN-13, IN-14 and the IN-2 build half wait for `build.py` |
 | 2026-11-02 | v3, uncommitted | IN-14 full build passed | `python -m neuro_rag.ingest.build`: report matches (52 papers, 642 pages, 4431 chunks); Qdrant `papers` holds 4,431 points, 384 cosine. IN-13 and the IN-2 build half still need their tests |
 | 2026-11-02 | v3, uncommitted | **IN-1 to IN-14 all passed** | 11 unit + 3 integration tests, plus the full build (IN-14) |
+| 2026-11-03 | v3, uncommitted | parse switched to GROBID | IN-2 to IN-7 rewritten; IN-13/IN-14 numbers now 628 pages, 4313 chunks; not run yet |
+| 2026-11-03 | v3, uncommitted | IN-1 to IN-13 passed with GROBID | 14 tests passed (`pytest tests/ -v`); IN-14 full build not run yet |
+| 2026-11-03 | v3, uncommitted | **IN-1 to IN-14 all passed with GROBID** | `python -m neuro_rag.ingest.build`: "built 52 papers, 628 pages, 4313 chunks into "papers" in 211.8 s"; matches the spec |

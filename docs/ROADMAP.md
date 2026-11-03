@@ -55,7 +55,7 @@ Built in this order. Status: planned → spec written → built → validated.
 
 | # | Functionality | Done when | Status |
 |---|---|---|---|
-| 1 | Ingest and index | the 52 papers are searchable chunks, each knowing its paper and page | validated |
+| 1 | Ingest and index | the 52 papers are searchable chunks, each knowing its paper and page | validated (GROBID, 2026-11-03) |
 | 2 | Search | a question returns its top 5 chunks | planned |
 | 3 | Cited answer | a question gets an answer citing paper and page | planned |
 | 4 | Eval and baseline score | rows 1–3 have a measured score on the 54 questions | planned |
