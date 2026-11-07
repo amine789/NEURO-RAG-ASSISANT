@@ -6,8 +6,9 @@ and page.
 ## Goal
 
 Turn the kept papers in the catalog into a Qdrant collection of chunks, where
-each chunk holds its text, its vector, and the paper and page it came from, so
-an answer can cite "paper, page".
+each chunk holds its text, two vectors (a dense one for meaning, a BM25 one for
+keywords), and the paper and page it came from, so an answer can cite "paper,
+page".
 
 ## In and out
 
@@ -30,9 +31,10 @@ an answer can cite "paper, page".
 ```
 candidates.csv ─┐
                 ├─► select papers ─► for each PDF: GROBID ─► kept parts ─► chunks ─► embed ─► Qdrant "papers"
-data/raw/*.pdf ─┘    (keep=yes)        (TEI XML, saved     (abstract,     (≤ 200     (384
-                                         in data/tei/)      body, figure    tokens)    numbers)
-                                                            captions)
+data/raw/*.pdf ─┘    (keep=yes)        (TEI XML, saved     (abstract,     (≤ 200     (dense: 384
+                                         in data/tei/)      body, figure    tokens)    numbers;
+                                                            captions)                  bm25: word
+                                                                                       weights)
 ```
 
 ## Settings
@@ -41,6 +43,7 @@ data/raw/*.pdf ─┘    (keep=yes)        (TEI XML, saved     (abstract,     (�
 |---|---|---|
 | PDF reader | GROBID `0.9.1-crf` in Docker, `/api/processFulltextDocument` with `teiCoordinates` `p`, `head`, `figure` | a model trained on scientific papers tags each part (heading, paragraph, figure caption, reference, back matter) and gives its page; measured against PMC's own XML (choice 2) |
 | embedding model | `sentence-transformers/all-MiniLM-L6-v2` through FastEmbed (ONNX), 384 numbers | small, fast on a CPU, no PyTorch in the deployed image |
+| keyword model | `Qdrant/bm25` through FastEmbed (`SparseTextEmbedding`), stored as the sparse vector `bm25` with Qdrant's IDF modifier | lets search (row 2) compare dense against hybrid; exact terms such as "Ythdf1" or "CA1" are what dense vectors blur |
 | token counter | the same model's tokenizer (`tokenizers` library), padding and truncation turned off | the limit that matters is the model's: 256 tokens, beyond which it silently ignores the rest |
 | chunk size | at most 200 tokens | below the 256 limit, with room for the 2 tokens the model adds |
 | overlap | the previous chunk's last sentence, if it has 50 tokens or fewer | a sentence cut at a chunk edge is still whole in one chunk |
@@ -56,7 +59,7 @@ data/raw/*.pdf ─┘    (keep=yes)        (TEI XML, saved     (abstract,     (�
 |---|---|
 | `pyproject.toml` | package `neuro-rag`, Python ≥ 3.11; dependencies `requests`, `tokenizers`, `fastembed`, `qdrant-client`; dev dependency `pytest` |
 | `docker-compose.yml` | service `qdrant`, image `qdrant/qdrant:v1.19.1`, port 6333, a named volume; service `grobid`, image `grobid/grobid:0.9.1-crf`, port 8070, profile `ingest` (started only for a build) |
-| `src/neuro_rag/config.py` | paths (`DATA_DIR`, `CATALOG_PATH`, `RAW_DIR`, `TEI_DIR`), `QDRANT_URL` and `GROBID_URL` from the environment (defaults `http://localhost:6333`, `http://localhost:8070`), `COLLECTION = "papers"`, `EMBED_MODEL`, `EMBED_SIZE = 384`, `CHUNK_TOKENS = 200`, `CARRY_TOKENS = 50`, `BATCH = 64` |
+| `src/neuro_rag/config.py` | paths (`DATA_DIR`, `CATALOG_PATH`, `RAW_DIR`, `TEI_DIR`), `QDRANT_URL` and `GROBID_URL` from the environment (defaults `http://localhost:6333`, `http://localhost:8070`), `COLLECTION = "papers"`, `EMBED_MODEL`, `EMBED_SIZE = 384`, `SPARSE_MODEL = "Qdrant/bm25"`, `CHUNK_TOKENS = 200`, `CARRY_TOKENS = 50`, `BATCH = 64` |
 | `src/neuro_rag/ingest/catalog.py` | `Paper`, `load_catalog`, `select_papers` |
 | `src/neuro_rag/ingest/parse.py` | `Page`, `ParseError`, `grobid_tei`, `kept_elements`, `tei_pages`, `parse_pdf` |
 | `src/neuro_rag/ingest/chunk.py` | `Chunk`, `TokenCounter`, `split_sentences`, `chunk_page` |
@@ -220,20 +223,34 @@ tokens.
 ```python
 def point_id(chunk_id: str) -> str   # str(uuid.uuid5(uuid.NAMESPACE_URL, chunk_id))
 def recreate_collection(client: QdrantClient, name: str = COLLECTION) -> None
-def write_chunks(client: QdrantClient, chunks: list[Chunk], papers: dict[str, Paper], embed, name: str = COLLECTION) -> int
+def write_chunks(client: QdrantClient, chunks: list[Chunk], papers: dict[str, Paper], embed, sparse_embed, name: str = COLLECTION) -> int
 ```
 
 - `point_id`: Qdrant only accepts integers or UUIDs as point IDs; a UUID
   derived from the chunk ID is the same on every build.
   `point_id("PMC6226095-p2-c0")` always returns the same UUID.
-- `recreate_collection`: deletes `name` if it exists, then creates it with one
-  unnamed dense vector of size 384, distance cosine.
+- `recreate_collection`: deletes `name` if it exists, then creates it with
+  two named vectors:
+  - `vectors_config={"dense": VectorParams(size=384, distance=Distance.COSINE)}`;
+  - `sparse_vectors_config={"bm25": SparseVectorParams(modifier=Modifier.IDF)}`.
 - `write_chunks`, in batches of 64 chunks:
-  1. `vectors = list(embed([c.text for c in batch]))`, where `embed` is
-     `TextEmbedding(EMBED_MODEL).embed`, passed in so tests can use a fake.
-  2. One `PointStruct` per chunk: `id=point_id(chunk_id)`, `vector`, and the
-     payload below. `client.upsert(name, points, wait=True)`.
+  1. `vectors = list(embed(texts))` and `sparse = list(sparse_embed(texts))`,
+     with `texts = [c.text for c in batch]`. `embed` is
+     `TextEmbedding(EMBED_MODEL).embed` and `sparse_embed` is
+     `SparseTextEmbedding(SPARSE_MODEL).embed`, both passed in so tests can
+     use fakes.
+  2. One `PointStruct` per chunk: `id=point_id(chunk_id)`,
+     `vector={"dense": vector.tolist(), "bm25": SparseVector(indices=s.indices.tolist(), values=s.values.tolist())}`,
+     and the payload below. `client.upsert(name, points, wait=True)`.
   3. Returns the number of points written.
+
+**What the BM25 vector holds.** One weight per distinct word, after
+lower-casing, stemming and dropping stop words. For a chunk (`embed`), a word's
+weight grows with how often it appears, with diminishing returns:
+"Ythdf1 promotes protein synthesis of Ythdf1 targets." gives 5 entries ("of"
+is dropped), "ythdf1" weighing 1.8957 (twice) and the other four 1.6653. How
+rare a word is across the 4,313 chunks (IDF) is not stored: Qdrant applies it
+at search time (`Modifier.IDF`), so it always matches the current collection.
 
 **Payload of one point,** with `title`, `citation` and `license` from the
 catalog (never from the PDF's metadata):
@@ -253,20 +270,20 @@ catalog (never from the PDF's metadata):
 ### `build.py`: the command
 
 ```python
-def build(catalog: dict[str, Paper], raw_dir: Path, client: QdrantClient, embed, name: str = COLLECTION) -> tuple[int, int, int]   # (papers, pages, chunks)
-def main()   # load_catalog(CATALOG_PATH), build(catalog, RAW_DIR, client, TextEmbedding(EMBED_MODEL).embed), print the report
+def build(catalog: dict[str, Paper], raw_dir: Path, client: QdrantClient, embed, sparse_embed, name: str = COLLECTION, tei_dir: Path = TEI_DIR) -> tuple[int, int, int]   # (papers, pages, chunks)
+def main()   # load_catalog(CATALOG_PATH), build(catalog, RAW_DIR, client, TextEmbedding(EMBED_MODEL).embed, SparseTextEmbedding(SPARSE_MODEL).embed), print the report
 ```
 
-`build` takes the catalog, folder, client, embedder and collection name as
-arguments so the integration tests can run it on a temporary folder, a fake
-embedder and a test collection. `python -m neuro_rag.ingest.build` runs `main`,
+`build` takes the catalog, folder, client, both embedders and collection name
+as arguments so the integration tests can run it on a temporary folder, fake
+embedders and a test collection. `python -m neuro_rag.ingest.build` runs `main`,
 and `build` does, in order:
 1. `select_papers(raw_dir, catalog)`.
 2. For each selected paper: `parse_pdf`, then `chunk_page` on each page.
    A `ParseError` prints its message and the build goes on with the next paper.
 3. Nothing to write (no chunks) → print "nothing to build" and exit with code 1,
    without touching Qdrant.
-4. `recreate_collection(client, name)`, `write_chunks(client, chunks, catalog, embed, name)`.
+4. `recreate_collection(client, name)`, `write_chunks(client, chunks, catalog, embed, sparse_embed, name)`.
 5. Check: `client.count(name, exact=True).count` equals the number of
    chunks; if not, print both numbers and exit with code 1.
 6. Return (papers built, pages, chunks); `main` prints the report and exits with code 0.
@@ -279,10 +296,10 @@ built 52 papers, 628 pages, 4313 chunks into "papers" in 41.2 s
 
 ## Choices (to confirm)
 
-1. **Dense vectors only.** Keyword (BM25) search was in v2's first version;
-   here it is a candidate for row 8 "Better search", added only if the eval
-   shows it helps. The collection is recreated by every build, so adding a
-   second vector later costs nothing.
+1. **Two vectors per chunk: dense and BM25** (changed 2026-11-03; was dense
+   only). Search (row 2) compares dense against hybrid on the eval questions
+   before deployment, so both must be in the collection. Both are named
+   (`dense`, `bm25`) so a search says which one it uses.
 2. **GROBID, not hand-written PDF rules.** The first version read plain
    PyMuPDF text and dropped headers, page numbers and references with
    regexes; a scan of the 52 papers (2026-11-02) showed those rules guess at
@@ -438,13 +455,16 @@ How each one is checked is in [validation.md](validation.md).
 
 ### The collection
 
-**IN-12: every chunk is one point, with its text, vector, paper and page.**
-- **Given** the chunk `PMC6226095-p2-c0` and the catalog row for PMC6226095.
+**IN-12: every chunk is one point, with its text, both vectors, paper and page.**
+- **Given** the chunk `PMC6226095-p2-c0`, the catalog row for PMC6226095, a
+  fake `embed` returning 384 × 0.1, and a fake `sparse_embed` returning
+  indices `[7, 42]` and values `[1.5, 0.5]`.
 - **When** `write_chunks` runs into a fresh test collection.
 - **Then** the point with ID `point_id("PMC6226095-p2-c0")` has a 384-number
-  vector and exactly the payload shown in "Payload of one point": `chunk_id`,
-  `pmcid`, `page` 2, the catalog's `title`, `citation` and `license`, and the
-  chunk's text.
+  `dense` vector, a `bm25` vector with indices `[7, 42]` and values
+  `[1.5, 0.5]`, and exactly the payload shown in "Payload of one point":
+  `chunk_id`, `pmcid`, `page` 2, the catalog's `title`, `citation` and
+  `license`, and the chunk's text.
 - **Why:** search returns points; everything the answer needs to quote and
   cite must be on the point itself.
 
@@ -470,6 +490,5 @@ How each one is checked is in [validation.md](validation.md).
 - Downloading the PDFs (done once; they are in `data/raw/`, outside git).
 - Checking the PDFs' checksums (choice 8).
 - OCR of scanned PDFs; tables, figures and equations as structured data.
-- Keyword (BM25) vectors (row 8, if the eval shows they help).
 - Versioned collections, an alias and snapshots (row 7, deployment).
 - Adding one paper to an existing collection; every build is full.

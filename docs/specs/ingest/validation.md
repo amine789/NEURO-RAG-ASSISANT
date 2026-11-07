@@ -28,7 +28,7 @@ The examples are in the spec; this file says where each one runs.
 | IN-9 | unit | `test_IN9_chunks_packed_from_sentences_with_overlap` |
 | IN-10 | unit | `test_IN10_long_sentence_cut_between_words` |
 | IN-11 | unit | `test_IN11_same_pdf_same_chunks_and_ids` |
-| IN-12 | integration | `test_IN12_point_holds_text_vector_paper_and_page` |
+| IN-12 | integration | `test_IN12_point_holds_text_vectors_paper_and_page` |
 | IN-13 | integration | `test_IN13_build_replaces_the_collection` |
 | IN-14 | full build | run the command; compare the printed counts with the spec |
 
@@ -60,3 +60,5 @@ python -m neuro_rag.ingest.build
 | 2026-11-03 | v3, uncommitted | parse switched to GROBID | IN-2 to IN-7 rewritten; IN-13/IN-14 numbers now 628 pages, 4313 chunks; not run yet |
 | 2026-11-03 | v3, uncommitted | IN-1 to IN-13 passed with GROBID | 14 tests passed (`pytest tests/ -v`); IN-14 full build not run yet |
 | 2026-11-03 | v3, uncommitted | **IN-1 to IN-14 all passed with GROBID** | `python -m neuro_rag.ingest.build`: "built 52 papers, 628 pages, 4313 chunks into "papers" in 211.8 s"; matches the spec |
+| 2026-11-03 | v3, uncommitted | spec changed: BM25 vector added | `recreate_collection`, `write_chunks` and `build` take the sparse vector; IN-12 now checks both vectors. Tests to update: IN-12, IN-2 build half, IN-13 (they call `write_chunks` / `build`). Rebuild needed |
+| 2026-11-05 | v3, uncommitted | **IN-1 to IN-14 all passed with the `bm25` vector** | integration tests passed (IN-2 both halves, IN-12, IN-13); full build rebuilt with `dense` + `bm25` (52 papers, 628 pages, 4313 chunks) |

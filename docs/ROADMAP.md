@@ -55,14 +55,14 @@ Built in this order. Status: planned → spec written → built → validated.
 
 | # | Functionality | Done when | Status |
 |---|---|---|---|
-| 1 | Ingest and index | the 52 papers are searchable chunks, each knowing its paper and page | validated (GROBID, 2026-11-03) |
-| 2 | Search | a question returns its top 5 chunks | planned |
+| 1 | Ingest and index | the 52 papers are searchable chunks, each knowing its paper and page, with a dense and a BM25 vector | validated (GROBID + BM25, 2026-11-05) |
+| 2 | Search | a question returns its top 5 chunks by dense or hybrid search, and the two are compared on the eval questions | validated (dense default, 2026-11-07) |
 | 3 | Cited answer | a question gets an answer citing paper and page | planned |
 | 4 | Eval and baseline score | rows 1–3 have a measured score on the 54 questions | planned |
 | 5 | API | `POST /ask` answers over HTTP | planned |
 | 6 | Tracing | every request is traced: its steps, timings, tokens and cost | planned |
 | 7 | Deployment | the API has a public URL, and the eval runs against it | planned |
-| 8 | Better search | kept only if the eval improves on the baseline | planned |
+| 8 | Better search | a reranker or tuning, kept only if the eval improves on the baseline | planned |
 | 9 | "Not in the papers" | questions the papers can't answer are recognised, measured | planned |
 | 10 | Web search | those questions are answered from vetted web sources, marked as web | planned |
 | 11 | Declining | off-topic questions are declined, with no false declines on borderline ones | planned |
@@ -87,6 +87,11 @@ live. Each row after it is an improvement, kept only if the eval shows it helps.
    live system is traced from the start.
 6. **The question set is v2's, unchanged:** 54 questions with reference
    answers and expected papers.
+7. **Hybrid search is built and compared in row 2, before deployment**
+   (decided 2026-11-03), not left for row 8. Row 1 stores a BM25 vector next
+   to the dense one; row 2 compares the two modes on the eval questions'
+   expected sources and picks the default. Row 8 keeps the reranker and
+   tuning.
 
 Candidates for later, each measured before it is kept: query rewriting,
 streaming answers.

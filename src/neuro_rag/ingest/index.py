@@ -1,7 +1,7 @@
 import uuid
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import Distance, Modifier, PointStruct, SparseVector, SparseVectorParams, VectorParams
 
 from neuro_rag.config import BATCH, COLLECTION, EMBED_SIZE
 from neuro_rag.ingest.catalog import Paper
@@ -15,15 +15,22 @@ def point_id(chunk_id: str) -> str:
 def recreate_collection(client: QdrantClient, name: str = COLLECTION) -> None:
     if client.collection_exists(name):
         client.delete_collection(name)
-    client.create_collection(name, vectors_config=VectorParams(size=EMBED_SIZE, distance=Distance.COSINE))
+    client.create_collection(
+        name,
+        vectors_config={"dense": VectorParams(size=EMBED_SIZE, distance=Distance.COSINE)},
+        sparse_vectors_config={"bm25": SparseVectorParams(modifier=Modifier.IDF)},
+    )
 
 
-def write_chunks(client: QdrantClient, chunks: list[Chunk], papers: dict[str, Paper], embed, name: str = COLLECTION) -> int:
+def write_chunks(client: QdrantClient, chunks: list[Chunk], papers: dict[str, Paper], embed, sparse_embed,
+                 name: str = COLLECTION) -> int:
     for start in range(0, len(chunks), BATCH):
         batch = chunks[start:start + BATCH]
-        vectors = list(embed([c.text for c in batch]))
+        texts = [c.text for c in batch]
+        vectors = list(embed(texts))
+        sparse = list(sparse_embed(texts))
         points = []
-        for chunk, vector in zip(batch, vectors):
+        for chunk, vector, s in zip(batch, vectors, sparse):
             paper = papers[chunk.pmcid]
             payload = {
                 "chunk_id": chunk.chunk_id,
@@ -34,6 +41,10 @@ def write_chunks(client: QdrantClient, chunks: list[Chunk], papers: dict[str, Pa
                 "license": paper.license,
                 "text": chunk.text,
             }
-            points.append(PointStruct(id=point_id(chunk.chunk_id), vector=list(vector), payload=payload))
+            vector = {
+                "dense": list(vector),
+                "bm25": SparseVector(indices=s.indices.tolist(), values=s.values.tolist()),
+            }
+            points.append(PointStruct(id=point_id(chunk.chunk_id), vector=vector, payload=payload))
         client.upsert(name, points, wait=True)
     return len(chunks)

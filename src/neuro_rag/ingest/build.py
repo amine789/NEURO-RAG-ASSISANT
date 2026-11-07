@@ -2,10 +2,10 @@ import sys
 import time
 from pathlib import Path
 
-from fastembed import TextEmbedding
+from fastembed import TextEmbedding, SparseTextEmbedding
 from qdrant_client import QdrantClient
 
-from neuro_rag.config import CATALOG_PATH, COLLECTION, EMBED_MODEL, QDRANT_URL, RAW_DIR, TEI_DIR
+from neuro_rag.config import CATALOG_PATH, COLLECTION, EMBED_MODEL, QDRANT_URL, RAW_DIR, TEI_DIR, SPARSE_MODEL
 from neuro_rag.ingest.catalog import Paper, load_catalog, select_papers
 from neuro_rag.ingest.chunk import TokenCounter, chunk_page
 from neuro_rag.ingest.index import recreate_collection, write_chunks
@@ -13,7 +13,7 @@ from neuro_rag.ingest.parse import ParseError, parse_pdf
 
 
 def build(
-    catalog: dict[str, Paper], raw_dir: Path, client: QdrantClient, embed, name: str = COLLECTION, tei_dir: Path = TEI_DIR
+    catalog: dict[str, Paper], raw_dir: Path, client: QdrantClient, embed, sparse_embed, name: str = COLLECTION, tei_dir: Path = TEI_DIR
 ) -> tuple[int, int, int]:
     papers = select_papers(raw_dir, catalog)
 
@@ -34,7 +34,7 @@ def build(
         sys.exit(1)
 
     recreate_collection(client, name)
-    write_chunks(client, chunks, catalog, embed, name)
+    write_chunks(client, chunks, catalog, embed, sparse_embed, name)
 
     points = client.count(name, exact=True).count
     if points != len(chunks):
@@ -47,7 +47,7 @@ def build(
 def main():
     start = time.time()
     client = QdrantClient(url=QDRANT_URL)
-    papers, pages, chunks = build(load_catalog(CATALOG_PATH), RAW_DIR, client, TextEmbedding(EMBED_MODEL).embed)
+    papers, pages, chunks = build(load_catalog(CATALOG_PATH), RAW_DIR, client, TextEmbedding(EMBED_MODEL).embed, SparseTextEmbedding(SPARSE_MODEL).embed)
     print(f'built {papers} papers, {pages} pages, {chunks} chunks into "{COLLECTION}" in {time.time() - start:.1f} s')
 
 

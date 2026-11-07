@@ -8,6 +8,7 @@ TEI_DIR = DATA_DIR / "tei"
 
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 EMBED_SIZE = 384
+SPARSE_MODEL = "Qdrant/bm25"
 COLLECTION = "papers"
 BATCH = 64
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")

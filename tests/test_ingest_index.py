@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+import numpy as np
 import pytest
 from qdrant_client import QdrantClient
 
@@ -16,7 +19,11 @@ def fake_embed(texts):
     return [[0.1] * 384 for _ in texts]
 
 
-def test_IN12_point_holds_text_vector_paper_and_page():
+def fake_sparse_embed(texts):
+    return [SimpleNamespace(indices=np.array([7, 42]), values=np.array([1.5, 0.5])) for _ in texts]
+
+
+def test_IN12_point_holds_text_vectors_paper_and_page():
     client = QdrantClient(url=QDRANT_URL)
     paper = Paper(
         pmcid="PMC6226095",
@@ -27,11 +34,13 @@ def test_IN12_point_holds_text_vector_paper_and_page():
     chunk = Chunk("PMC6226095-p2-c0", "PMC6226095", 2, "m6A is abundant in the nervous system.")
     recreate_collection(client, TEST_COLLECTION)
 
-    written = write_chunks(client, [chunk], {"PMC6226095": paper}, fake_embed, TEST_COLLECTION)
+    written = write_chunks(client, [chunk], {"PMC6226095": paper}, fake_embed, fake_sparse_embed, TEST_COLLECTION)
 
     [point] = client.retrieve(TEST_COLLECTION, [point_id("PMC6226095-p2-c0")], with_vectors=True)
     assert written == 1
-    assert len(point.vector) == 384
+    assert len(point.vector["dense"]) == 384
+    assert point.vector["bm25"].indices == [7, 42]
+    assert point.vector["bm25"].values == [1.5, 0.5]
     assert point.payload == {
         "chunk_id": "PMC6226095-p2-c0",
         "pmcid": "PMC6226095",
@@ -54,7 +63,7 @@ def test_IN2_build_continues_after_parse_error(tmp_path, capsys):
     )
     catalog = {pmcid: Paper(pmcid, "Title", "Citation", "CC BY") for pmcid in ["PMC0000002", "PMC0000003"]}
 
-    papers, pages, chunks = build(catalog, tmp_path, client, fake_embed, TEST_COLLECTION, tei_dir=tmp_path)
+    papers, pages, chunks = build(catalog, tmp_path, client, fake_embed, fake_sparse_embed, TEST_COLLECTION, tei_dir=tmp_path)
 
     assert capsys.readouterr().out.startswith("can't open PMC0000002.pdf")
     assert (papers, pages, chunks) == (1, 1, 1)
@@ -65,9 +74,9 @@ def test_IN13_build_replaces_the_collection():
     client = QdrantClient(url=QDRANT_URL)
     recreate_collection(client, TEST_COLLECTION)
     old = [Chunk(f"OLD-p1-c{n}", "PMC6226095", 1, f"old text {n}") for n in range(10)]
-    write_chunks(client, old, {"PMC6226095": Paper("PMC6226095", "T", "C", "L")}, fake_embed, TEST_COLLECTION)
+    write_chunks(client, old, {"PMC6226095": Paper("PMC6226095", "T", "C", "L")}, fake_embed, fake_sparse_embed, TEST_COLLECTION)
 
-    papers, pages, chunks = build(load_catalog(CATALOG_PATH), RAW_DIR, client, fake_embed, TEST_COLLECTION)
+    papers, pages, chunks = build(load_catalog(CATALOG_PATH), RAW_DIR, client, fake_embed, fake_sparse_embed, TEST_COLLECTION)
 
     assert (papers, pages, chunks) == (52, 628, 4313)
     assert client.count(TEST_COLLECTION, exact=True).count == 4313
