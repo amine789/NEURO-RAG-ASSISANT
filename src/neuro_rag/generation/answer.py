@@ -16,7 +16,7 @@ PMC_URL = "https://pmc.ncbi.nlm.nih.gov/articles/{pmcid}/"
 HEADING = re.compile(r"^\s*#+\s.*$\n?", re.MULTILINE)
 TAIL = re.compile(r"[.,;:!?]*\s*$")
 
-SYSTEM = """You answer questions about hippocampus and memory neuroscience for students and researchers.
+SYSTEM ="""You answer questions about hippocampus and memory neuroscience for students and researchers.
 
 Answer only from the documents provided with the question. Each document is a passage from a scientific paper.
 - Use only facts stated in the documents. Never add facts from general knowledge, even well-known ones.
@@ -61,7 +61,7 @@ def make_llm(model: str = LLM_MODEL) -> ChatAnthropic:
 def answer(question: str, hits: list[Hit], llm) -> Answer:
     if not hits:
         return Answer(NOT_FOUND, [], [], 0, 0)
-
+    
     blocks = [
         {
             "type": "document",
@@ -76,23 +76,21 @@ def answer(question: str, hits: list[Hit], llm) -> Answer:
     input_tokens = response.usage_metadata["input_tokens"]
     output_tokens = response.usage_metadata["output_tokens"]
 
-    if response.response_metadata.get("stop_reason") == "refusal":
+    if response.response_metadata.get("stop_reason")=="refusal":
         return Answer(REFUSED, [], [], input_tokens, output_tokens)
-
     content = response.content
     if isinstance(content, str):
         content = [{"type": "text", "text": content}]
-
     numbers, sources, citations, parts = {}, [], [], []
     for block in content:
         if block.get("type") != "text":
             continue
-        markers = []
+        markers =[]
         for c in block.get("citations") or []:
             hit = hits[c["document_index"]]
             key = (hit.pmcid, hit.page)
             if key not in numbers:
-                numbers[key] = len(numbers) + 1
+                numbers[key] = len(numbers)+1
                 sources.append(Source(numbers[key], hit.pmcid, hit.page, hit.title, hit.citation,
                                       PMC_URL.format(pmcid=hit.pmcid)))
             citations.append(Citation(numbers[key], c["document_index"], c["cited_text"]))
