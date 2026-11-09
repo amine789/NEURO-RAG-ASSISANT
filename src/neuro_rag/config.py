@@ -1,6 +1,10 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 DATA_DIR = Path(__file__).parents[2] / "data"
 CATALOG_PATH = DATA_DIR / "candidates.csv"
 RAW_DIR = DATA_DIR / "raw"
@@ -13,3 +17,5 @@ COLLECTION = "papers"
 BATCH = 64
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
 GROBID_URL = os.environ.get("GROBID_URL", "http://localhost:8070")
+
+LLM_MODEL = "claude-haiku-4-5"

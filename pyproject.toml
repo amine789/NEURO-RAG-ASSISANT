@@ -2,7 +2,7 @@
 name = "neuro-rag"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["requests", "tokenizers", "qdrant-client", "fastembed"]
+dependencies = ["requests", "tokenizers", "qdrant-client", "fastembed", "langchain-anthropic", "python-dotenv"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
@@ -16,4 +16,7 @@ packages = ["src/neuro_rag"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["integration: needs the running Qdrant from docker compose"]
+markers = [
+    "integration: needs the running Qdrant from docker compose",
+    "llm: calls the real Claude API (costs money)",
+]
