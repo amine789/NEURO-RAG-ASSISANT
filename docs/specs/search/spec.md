@@ -42,7 +42,7 @@ question ─► strip                                                           
 | mode | `"dense"` by default, or `"hybrid"` | the default is decided by the comparison (choice 3) |
 | hybrid candidates | 20 from each vector | enough for a chunk ranked low by one method but high by the other to be found; to confirm |
 | merging | Qdrant's reciprocal rank fusion (`Fusion.RRF`) | uses ranks only, so a cosine (0 to 1) and a BM25 score (no fixed range) never have to be put on one scale |
-| score threshold | none | deciding a question isn't in the papers is row 9's job |
+| score threshold | none | deciding a question isn't in the papers is row 10's job |
 
 ## How it is built
 
@@ -146,7 +146,7 @@ Hit(chunk_id="PMC6226095-p6-c1", pmcid="PMC6226095", page=6,
 
 **An off-topic question** ("What's a good recipe for sourdough bread?") still
 returns 5 dense hits, all far: the best is 0.1891 (a table row from
-PMC4146209), against 0.76 for q01. Search reports the distance; row 9 decides
+PMC4146209), against 0.76 for q01. Search reports the distance; row 10 decides
 what a low score means.
 
 ### `scripts/compare_search.py`: dense against hybrid
@@ -206,7 +206,7 @@ wrote eval/results/search_compare_2026-11-03.csv
 5. **No score threshold.** Search always returns `k` hits (fewer only if the
    collection holds fewer points).
 6. **The question is used as typed**, after stripping spaces: no spelling
-   fixes or rewriting. (BM25 lower-cases and stems on its own.)
+   fixes or rewriting (row 9). (BM25 lower-cases and stems on its own.)
 7. **`retrieval/search.py`, next to `ingest/`,** plus one script. Row 8 (a reranker) goes in the same folder.
 8. **Errors from Qdrant are not caught here.** Qdrant down, or no `papers`
    collection, raises the client's own exception. The API (row 5) decides
@@ -269,7 +269,7 @@ How each one is checked is in [validation.md](validation.md).
   sourdough bread?".
 - **Then** it returns 5 hits, and the first has a score below 0.30.
 - **Why:** search measures distance and never decides; that the best score
-  here is 0.19 against 0.76 for SE-1 is the evidence row 9 starts from.
+  here is 0.19 against 0.76 for SE-1 is the evidence row 10 starts from.
 
 **SE-7: a hybrid search returns 5 hits, each found by dense or BM25.**
 - **Given** the same collection, and the question "Ythdf1 Mettl3 knockdown".
@@ -319,8 +319,8 @@ How each one is checked is in [validation.md](validation.md).
 ## Out of scope
 
 - A reranker, tuning RRF or the candidate count (row 8).
-- A score threshold, "not in the papers" (row 9).
-- Rewriting or correcting the question (a later candidate).
+- A score threshold, "not in the papers" (row 10).
+- Rewriting or correcting the question (row 9).
 - Filtering by paper, page or license.
 - Answer quality; the comparison is retrieval only (row 4).
 - Catching Qdrant errors (row 5 decides what the caller sees).

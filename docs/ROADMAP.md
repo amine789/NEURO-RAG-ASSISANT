@@ -58,14 +58,15 @@ Built in this order. Status: planned → spec written → built → validated.
 | 1 | Ingest and index | the 52 papers are searchable chunks, each knowing its paper and page, with a dense and a BM25 vector | validated (GROBID + BM25, 2026-11-05) |
 | 2 | Search | a question returns its top 5 chunks by dense or hybrid search, and the two are compared on the eval questions | validated (dense default, 2026-11-07) |
 | 3 | Cited answer | a question gets an answer citing paper and page | validated (2026-11-08) |
-| 4 | Eval and baseline score | rows 1–3 have a measured score on the 54 questions | planned |
+| 4 | Eval and baseline score | rows 1–3 have a measured score on the 50 English questions | spec written |
 | 5 | API | `POST /ask` answers over HTTP | planned |
 | 6 | Tracing | every request is traced: its steps, timings, tokens and cost | planned |
-| 7 | Deployment | the API has a public URL, and the eval runs against it | planned |
+| 7 | Deployment | the API runs on Kubernetes with a public URL, and the eval runs against it. To confirm in its spec: k3s on one small VM (about $5–10 a month; a managed cluster is about $70+), with the API as a Deployment, Qdrant as a StatefulSet with a persistent volume, the API key as a Secret, and an Ingress for the URL | planned |
 | 8 | Better search | a reranker or tuning, kept only if the eval improves on the baseline | planned |
-| 9 | "Not in the papers" | questions the papers can't answer are recognised, measured | planned |
-| 10 | Web search | those questions are answered from vetted web sources, marked as web | planned |   
-| 11 | Declining | off-topic questions are declined, with no false declines on borderline ones | planned |
+| 9 | Question rewriting | a question is rewritten into clear English before search (translating non-English ones, fixing typos and casual wording), kept only if the eval improves on the baseline; translating would let the 4 non-English questions back into the eval | planned |
+| 10 | "Not in the papers" | questions the papers can't answer are recognised, measured | planned |
+| 11 | Web search | those questions are answered from vetted web sources, marked as web | planned |   
+| 12 | Declining | off-topic questions are declined, with no false declines on borderline ones | planned |
 
 1–7 is the walking skeleton: the simplest version that works end to end, and is
 live. Each row after it is an improvement, kept only if the eval shows it helps.
@@ -73,12 +74,14 @@ live. Each row after it is an improvement, kept only if the eval shows it helps.
 ## Choices, accepted 2026-10-25
 
 1. **One answer style for everyone**, shown by the example above.
-2. **English answers only.** The 4 non-English questions in the set (German,
-   French, Spanish, Arabic) are reported but left out of the overall score.
+2. **English only.** The 4 non-English questions in the set (German,
+   French, Spanish, Arabic) are not run (decided 2026-11-09): the English
+   embedding model can't search them, so they would only measure a known 0.
+   Row 9's rewriter may translate them and bring them back.
 3. **Deployment is in the skeleton (row 7), not at the end.** v2 left it last
    and never reached it; deploying early means every later row is measured on
    the live system.
-4. **Rows 8–11 are named by the problem, not the technique.** "Better search"
+4. **Rows 8–12 are named by the problem, not the technique.** "Better search"
    may become hybrid search, a reranker or both; "Not in the papers" may become
    a reranker score or an LLM grader. Each is chosen in its spec from what the
    eval shows. v2's results (hybrid search, a reranker at 0.68 → 0.75
@@ -93,5 +96,4 @@ live. Each row after it is an improvement, kept only if the eval shows it helps.
    expected sources and picks the default. Row 8 keeps the reranker and
    tuning.
 
-Candidates for later, each measured before it is kept: query rewriting,
-streaming answers.
+Candidates for later, each measured before it is kept: streaming answers.
