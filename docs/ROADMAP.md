@@ -59,7 +59,7 @@ Built in this order. Status: planned → spec written → built → validated.
 | 2 | Search | a question returns its top 5 chunks by dense or hybrid search, and the two are compared on the eval questions | validated (dense default, 2026-11-07) |
 | 3 | Cited answer | a question gets an answer citing paper and page | validated (2026-11-08) |
 | 4 | Eval and baseline score | rows 1–3 have a measured score on the 50 English questions | spec written |
-| 5 | API | `POST /ask` answers over HTTP | planned |
+| 5 | API | `POST /ask` answers over HTTP | validated (2026-11-15) |
 | 6 | Tracing | every request is traced: its steps, timings, tokens and cost | planned |
 | 7 | Deployment | the API runs on Kubernetes with a public URL, and the eval runs against it. To confirm in its spec: k3s on one small VM (about $5–10 a month; a managed cluster is about $70+), with the API as a Deployment, Qdrant as a StatefulSet with a persistent volume, the API key as a Secret, and an Ingress for the URL | planned |
 | 8 | Better search | a reranker or tuning, kept only if the eval improves on the baseline | planned |

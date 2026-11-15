@@ -2,10 +2,10 @@
 name = "neuro-rag"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["requests", "tokenizers", "qdrant-client", "fastembed", "langchain-anthropic", "python-dotenv"]
+dependencies = ["requests", "tokenizers", "qdrant-client", "fastembed", "langchain-anthropic", "python-dotenv", "fastapi", "uvicorn"]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "httpx"]
 
 [build-system]
 requires = ["hatchling"]
