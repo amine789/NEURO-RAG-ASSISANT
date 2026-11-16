@@ -58,7 +58,7 @@ Built in this order. Status: planned → spec written → built → validated.
 | 1 | Ingest and index | the 52 papers are searchable chunks, each knowing its paper and page, with a dense and a BM25 vector | validated (GROBID + BM25, 2026-11-05) |
 | 2 | Search | a question returns its top 5 chunks by dense or hybrid search, and the two are compared on the eval questions | validated (dense default, 2026-11-07) |
 | 3 | Cited answer | a question gets an answer citing paper and page | validated (2026-11-08) |
-| 4 | Eval and baseline score | rows 1–3 have a measured score on the 50 English questions | spec written |
+| 4 | Eval and baseline score | rows 1–3 have a measured score on the 50 English questions | validated (2026-11-16): correctness 0.67, faithful 0.97, page@5 0.67, $0.0052 a question |
 | 5 | API | `POST /ask` answers over HTTP | validated (2026-11-15) |
 | 6 | Tracing | every request is traced: its steps, timings, tokens and cost | validated (2026-11-16) |
 | 7 | Deployment | the API runs on Kubernetes with a public URL, and the eval runs against it. To confirm in its spec: k3s on one small VM (about $5–10 a month; a managed cluster is about $70+), with the API as a Deployment, Qdrant as a StatefulSet with a persistent volume, the API key as a Secret, and an Ingress for the URL. Also to confirm: CI with GitHub Actions running the free tests (`pytest -m "not integration and not llm"`) on every push; CD (build, push the image, update k3s automatically) added once the manual deploy works | planned |

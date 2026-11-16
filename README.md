@@ -81,7 +81,7 @@ tests named after them.
 | 1 | Ingest and index | ✅ validated |
 | 2 | Search (dense and hybrid, compared) | ✅ validated |
 | 3 | Cited answer | ✅ validated |
-| 4 | Eval and baseline score | 🔨 built; baseline run pending |
+| 4 | Eval and baseline score | ✅ validated: correctness 0.67, faithful 0.97 |
 | 5 | API (`POST /ask`) | ✅ validated |
 | 6 | Tracing (Langfuse) | ✅ validated |
 | 7 | Deployment (Kubernetes, public URL) | ⏳ planned |
