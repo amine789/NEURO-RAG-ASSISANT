@@ -94,7 +94,7 @@ The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 **Needs:** Python 3.11+, Docker, an [Anthropic API key](https://console.anthropic.com/).
 
 ```bash
-git clone git@github.com:amine789/NEUR-RAG-ASSISANT.git && cd NEUR-RAG-ASSISANT
+git clone git@github.com:amine789/NEURO-RAG-ASSISANT.git && cd NEURO-RAG-ASSISANT
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env        # then put your ANTHROPIC_API_KEY in it
