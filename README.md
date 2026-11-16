@@ -83,7 +83,7 @@ tests named after them.
 | 3 | Cited answer | ✅ validated |
 | 4 | Eval and baseline score | 🔨 built; baseline run pending |
 | 5 | API (`POST /ask`) | ✅ validated |
-| 6 | Tracing (LangSmith) | 📝 spec written |
+| 6 | Tracing (Langfuse) | ✅ validated |
 | 7 | Deployment (Kubernetes, public URL) | ⏳ planned |
 | 8–12 | Better search, question rewriting, "not in the papers", web search, declining | ⏳ planned, each kept only if the eval improves |
 

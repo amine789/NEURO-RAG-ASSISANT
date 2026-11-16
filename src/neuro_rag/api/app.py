@@ -3,6 +3,8 @@ from typing import Annotated
 
 from fastapi import FastAPI, HTTPException
 from fastembed import SparseTextEmbedding, TextEmbedding
+from langfuse import observe
+from langfuse.langchain import CallbackHandler
 from pydantic import BaseModel, StringConstraints
 from qdrant_client import QdrantClient
 
@@ -45,7 +47,7 @@ def build_pipeline():
     client = QdrantClient(url=QDRANT_URL)
     embed = TextEmbedding(EMBED_MODEL).embed
     sparse_embed = SparseTextEmbedding(SPARSE_MODEL).query_embed
-    llm = make_llm()
+    llm = make_llm().with_config(callbacks=[CallbackHandler()])  # every Claude call → a Langfuse generation
 
     def search_fn(question):
         return search(question, client, embed, sparse_embed)  # dense, top 5 (defaults)
@@ -61,20 +63,31 @@ def create_app(search_fn=None, answer_fn=None) -> FastAPI:
     if search_fn is None or answer_fn is None:
         search_fn, answer_fn = build_pipeline()
 
+    # each step becomes a Langfuse observation inside the request's trace; a plain def,
+    # because the tests pass objects (FakeSearch()), not functions
+    @observe(name="search")
+    def traced_search(question):
+        return search_fn(question)
+
+    @observe(name="answer")
+    def traced_answer(question, hits):
+        return answer_fn(question, hits)
+
     app = FastAPI(title="Neuro-RAG")
 
     @app.post("/ask")
+    @observe(name="ask")
     def ask(request: AskRequest) -> AskResponse:
         # 1. search; any failure is a 503, the real error goes to the log only
         try:
-            hits = search_fn(request.question)
+            hits = traced_search(request.question)
         except Exception:
             logger.exception("search failed")
             raise HTTPException(status_code=503, detail=SEARCH_DOWN)
 
         # 2. answer; same rule
         try:
-            result = answer_fn(request.question, hits)
+            result = traced_answer(request.question, hits)
         except Exception:
             logger.exception("answer failed")
             raise HTTPException(status_code=503, detail=ANSWER_DOWN)
