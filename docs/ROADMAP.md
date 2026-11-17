@@ -96,4 +96,21 @@ live. Each row after it is an improvement, kept only if the eval shows it helps.
    expected sources and picks the default. Row 8 keeps the reranker and
    tuning.
 
+8. **Every yes/no decision uses the cheapest model that passes the eval**
+   (added 2026-11-18). Tried in this order, keeping the first that matches an
+   LLM's quality on the eval: (1) a threshold on a score we already have, $0;
+   (2) a local open decision model (e.g. Laya, Apache-2.0, small enough for
+   CPU), $0 but VM memory; (3) a hosted decision model (e.g. Jev, about
+   $0.00002 a call); (4) an LLM call (Haiku, about $0.001). The main saving
+   is calls avoided: a cheap "no" stops the pipeline before Claude answers.
+   The answer itself and the eval judges stay with Claude. To confirm in
+   each row's spec:
+   - **row 9:** "does this question need rewriting?" gates the rewrite call,
+     so it runs only on casual or misspelled questions;
+   - **row 10:** "do these chunks answer the question?" (a reranker score
+     from row 8 is the first candidate);
+   - **row 11:** "go to the web?" is row 10's answer, no extra model;
+   - **row 12:** "on-topic?" runs before search, so an off-domain question
+     costs no Claude call (in the baseline it still cost about $0.0024).
+
 Candidates for later, each measured before it is kept: streaming answers.

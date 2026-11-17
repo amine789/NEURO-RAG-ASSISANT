@@ -41,9 +41,9 @@ Qdrant has no public port: only the API reaches it, inside the cluster.
 | Setting | Value | Why |
 |---|---|---|
 | cluster | k3s, one node | one install command; full Kubernetes API; ~512 MB of RAM for itself |
-| VM | Hetzner Cloud CX22: 2 vCPU, 4 GB RAM, 40 GB disk, x86, Ubuntu 24.04; about €5 a month (check the current price) | 4 GB holds k3s, Qdrant and the API with the two embedding models; a 4 GB droplet elsewhere is about $24 |
+| VM | Hetzner Cloud CPX22 in Helsinki (HEL1): 2 vCPU (AMD), 4 GB RAM, 80 GB disk, x86, Ubuntu 24.04; €16.99 a month + VAT at most, billed by the hour | 4 GB holds k3s, Qdrant and the API with the two embedding models; a 4 GB droplet elsewhere is about $24 |
 | image | `python:3.11-slim`; dependencies from `requirements.lock` (pinned), then the package with `pip install --no-deps .`; the two fastembed models downloaded at build time | the image runs the versions rows 1–6 were validated with (choice 12); the pod starts without downloading anything |
-| image platform | `linux/amd64`, built on the Mac with `docker buildx build --platform linux/amd64` | the Mac is ARM, the VM is x86 |
+| image platform | `linux/amd64`, built natively on the Mac with `docker build` | the Mac (Intel) and the VM are both x86, so the image tested on the laptop is the one deployed |
 | registry | GitHub Container Registry, `ghcr.io/amine789/neuro-rag-api`, public | free; the image holds no key; CD (later) pushes to the same place |
 | image tag | the git commit's short hash, e.g. `c2e2703` | each deploy names exactly the code it runs; no `latest` |
 | manifests | plain YAML in `deploy/k8s/`, applied with `kubectl apply -f deploy/k8s/` | no Helm or Kustomize for 3 files |
@@ -99,11 +99,11 @@ CMD ["uvicorn", "neuro_rag.api.app:create_app", "--factory", "--host", "0.0.0.0"
 
 ### Steps, first deploy
 
-1. **VM:** create the CX22 with the firewall above and your SSH key.
+1. **VM:** create the CPX22 with the firewall above and your SSH key.
 2. **k3s:** `ssh root@<VM_IP> 'curl -sfL https://get.k3s.io | sh -s - --tls-san <VM_IP>'`,
    then copy the kubeconfig to the laptop as in Settings and
    `export KUBECONFIG=~/.kube/neuro-rag.yaml`.
-3. **Image:** `docker buildx build --platform linux/amd64 -t ghcr.io/amine789/neuro-rag-api:<sha> --push .`
+3. **Image:** `docker tag neuro-rag-api:local ghcr.io/amine789/neuro-rag-api:<sha>` (the image DP-1 to DP-3 tested), then `docker push ghcr.io/amine789/neuro-rag-api:<sha>`
    (after `docker login ghcr.io` with a GitHub token that has `write:packages`;
    then set the package to public on GitHub once).
 4. **Secret:** `kubectl create secret generic neuro-rag-keys --from-env-file=.env`.
@@ -120,7 +120,7 @@ CMD ["uvicorn", "neuro_rag.api.app:create_app", "--factory", "--host", "0.0.0.0"
 
 ## Choices, accepted 2026-11-16
 
-1. **k3s on one Hetzner CX22.** Alternatives: a managed cluster (EKS, GKE,
+1. **k3s on one Hetzner CPX22, Helsinki.** Changed from the CX22 on 2026-11-17: the €6 4 GB plans (CX23, CAX11) were sold out; the CPX22 is €16.99 a month at most, billed by the hour, so the VM can be deleted when not needed. 2 GB plans (CPX12) were rejected: k3s, Qdrant and the API need about 1.4–1.9 GB. Alternatives: a managed cluster (EKS, GKE,
    DOKS: $70+ a month with a load balancer); a 4 GB droplet on DigitalOcean
    (~$24); plain `docker compose` on the VM (simpler, but not Kubernetes,
    which the roadmap asks for).
