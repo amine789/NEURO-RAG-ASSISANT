@@ -1,0 +1,62 @@
+# The Neuro-RAG API on k3s (roadmap row 7). One pod from our image; keys from the Secret.
+# Reachable inside the cluster at http://api (port 80); ingress.yaml makes it public.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  type: ClusterIP
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 80                  # what the Ingress calls
+      targetPort: 8000          # where uvicorn listens in the container
+---
+apiVersion: apps/v1
+kind: Deployment                # stateless: a pod can be replaced at any time
+metadata:
+  name: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          # set the tag to the commit being deployed (git rev-parse --short HEAD) before applying
+          image: ghcr.io/amine789/neuro-rag-api:SHA
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: neuro-rag-keys            # ANTHROPIC_API_KEY, LANGFUSE_* (made from .env)
+          env:
+            - name: QDRANT_URL                  # wins over any QDRANT_URL in the Secret
+              value: http://qdrant:6333
+          startupProbe:                         # loading the models takes a few seconds:
+            httpGet:                            # allow up to 2 minutes before the other probes start
+              path: /health
+              port: 8000
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:                       # traffic only when uvicorn answers
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+          livenessProbe:                        # restarted if it stops answering
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 30
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 1536Mi

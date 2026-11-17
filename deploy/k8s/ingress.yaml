@@ -1,0 +1,31 @@
+# The public door (roadmap row 7): port 80 on the VM → Service "api". Qdrant gets no route.
+# Served by Traefik, the router built into k3s.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: ratelimit
+spec:
+  rateLimit:                    # per client IP: on average 10 requests a minute, 5 at once;
+    average: 10                 # above that Traefik answers 429 and the API never sees the request
+    period: 1m
+    burst: 5
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api
+  annotations:
+    # apply the Middleware above (<namespace>-<name>@kubernetescrd)
+    traefik.ingress.kubernetes.io/router.middlewares: default-ratelimit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - http:                     # no host: any address that reaches the VM, e.g. http://<VM_IP>
+        paths:
+          - path: /
+            pathType: Prefix    # every path: /ask, /health, /docs
+            backend:
+              service:
+                name: api
+                port:
+                  number: 80

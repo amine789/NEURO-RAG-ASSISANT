@@ -1,0 +1,25 @@
+# Keeps everything but pyproject.toml and src/ out of the image's build context.
+# Secrets
+.env
+
+# Data, results and documents: the image needs none of them
+data/
+eval/
+docs/
+*.pdf
+*.html
+
+# Python and tools
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Repo and OS files
+.git/
+.github/
+.DS_Store
+tests/
+scripts/
+deploy/

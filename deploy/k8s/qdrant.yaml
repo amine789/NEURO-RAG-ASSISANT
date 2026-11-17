@@ -1,0 +1,63 @@
+# Qdrant on k3s (roadmap row 7). One pod, its data on a 2 GiB disk that survives restarts.
+# Reachable only inside the cluster, at http://qdrant:6333 (no public port).
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant                  # the name the API uses: QDRANT_URL=http://qdrant:6333
+spec:
+  type: ClusterIP               # internal only
+  selector:
+    app: qdrant
+  ports:
+    - name: http
+      port: 6333
+      targetPort: 6333
+---
+apiVersion: apps/v1
+kind: StatefulSet               # like a Deployment, but each pod keeps its own disk and name (qdrant-0)
+metadata:
+  name: qdrant
+spec:
+  serviceName: qdrant
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qdrant
+  template:
+    metadata:
+      labels:
+        app: qdrant
+    spec:
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:v1.19.1        # the laptop's version: snapshots restore only into the same one
+          ports:
+            - containerPort: 6333
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage      # where Qdrant keeps its collections
+          readinessProbe:                     # traffic only once Qdrant has loaded its data
+            httpGet:
+              path: /readyz
+              port: 6333
+            periodSeconds: 10
+          livenessProbe:                      # restarted if it stops answering
+            httpGet:
+              path: /livez
+              port: 6333
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+  volumeClaimTemplates:                       # one disk per pod, kept when the pod is deleted
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path          # k3s's built-in storage: a folder on the VM's disk
+        resources:
+          requests:
+            storage: 2Gi
