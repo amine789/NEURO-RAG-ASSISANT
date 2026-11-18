@@ -1,0 +1,29 @@
+# CI (roadmap row 7, choice 11): the free tests on every push and pull request.
+# No Qdrant, no Claude, no Langfuse, no keys: integration and llm tests are deselected.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  free-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      # the same pinned versions as the image, then our package, then the test tools
+      - name: Install
+        run: |
+          pip install -r requirements.lock
+          pip install --no-deps -e .
+          pip install pytest httpx
+
+      - name: Free tests
+        run: pytest -m "not integration and not llm" -v

@@ -27,7 +27,7 @@ The examples are in the spec; this file says where each one runs.
 | IN-8 | unit | `test_IN8_tokenizer_counts_real_tokens` |
 | IN-9 | unit | `test_IN9_chunks_packed_from_sentences_with_overlap` |
 | IN-10 | unit | `test_IN10_long_sentence_cut_between_words` |
-| IN-11 | unit | `test_IN11_same_pdf_same_chunks_and_ids` |
+| IN-11 | integration (needs the saved TEI in `data/tei/`, gitignored; marked 2026-11-18 so CI skips it) | `test_IN11_same_pdf_same_chunks_and_ids` |
 | IN-12 | integration | `test_IN12_point_holds_text_vectors_paper_and_page` |
 | IN-13 | integration | `test_IN13_build_replaces_the_collection` |
 | IN-14 | full build | run the command; compare the printed counts with the spec |

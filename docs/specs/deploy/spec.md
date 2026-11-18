@@ -150,7 +150,7 @@ CMD ["uvicorn", "neuro_rag.api.app:create_app", "--factory", "--host", "0.0.0.0"
     `run.py` needs the hits (for page@5 and faithfulness), which the API
     doesn't return, so the eval runs on the laptop with `QDRANT_URL` pointed at
     the deployed Qdrant: it measures the deployed index with the same code and
-    model. A free check first (DP-8: every question's top 5 chunks equal the
+    model. A free check first (DP-8: every question's dense top 5 chunks equal the
     laptop's); the full eval (DP-10, ~$0.26) after a top-up.
 11. **CI now, CD later.** A GitHub Actions workflow runs the free tests
     (`pytest -m "not integration and not llm"`) on every push and pull
@@ -225,14 +225,21 @@ How each one is checked is in [validation.md](validation.md).
 - **Then** both fail (timeout or connection refused).
 - **Why:** an open Qdrant could be read or wiped by anyone.
 
-**DP-8: search on the deployed index gives the laptop's top 5 for every question.**
+**DP-8: dense search on the deployed index gives the laptop's top 5 for every question.**
 - **Given** `kubectl port-forward svc/qdrant 6334:6333`.
 - **When** `QDRANT_URL=http://localhost:6334 python scripts/compare_search.py` runs.
-- **Then** its CSV's `chunk_ids` equal `eval/results/search_compare_2026-11-04.csv`'s
-  on every row (`diff` shows nothing but the file name), and it prints dense
-  paper@5 and page@5 equal to that run's.
-- **Why:** free proof that the deployed index answers search exactly like the
-  laptop's, so the baseline's retrieval numbers hold on the deployment.
+- **Then** on every dense row its CSV's `chunk_ids` equal
+  `eval/results/search_compare_2026-11-04.csv`'s (same 5 chunks, same order), and
+  every hybrid row keeps the same `paper_hit` and `page_hit`.
+- **Why:** free proof that the deployed index answers search like the laptop's, so
+  the baseline's retrieval numbers hold on the deployment. Dense is checked chunk
+  for chunk because it is the mode the API and the eval use (row 2's default);
+  hybrid is not used in production, so only its hits are checked.
+- *Reworded 2026-11-18:* first written as "`chunk_ids` equal on every row". On the
+  first run dense was identical on all 40 rows, but 12 hybrid rows reordered or
+  swapped chunks with the same hits; the strict wording would fail on a mode
+  nothing live calls. If a later row makes hybrid the default, its spec rechecks
+  hybrid chunk for chunk.
 
 **DP-9: data survives a restart.**
 - **When** `kubectl delete pod qdrant-0` and `kubectl delete pod -l app=api` run,

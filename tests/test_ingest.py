@@ -146,6 +146,7 @@ def test_IN10_long_sentence_cut_between_words():
     ]
 
 
+@pytest.mark.integration  # needs data/tei/PMC6226095.tei.xml (or the PDF and GROBID): gitignored, so not in CI
 def test_IN11_same_pdf_same_chunks_and_ids():
     count = TokenCounter()
 
