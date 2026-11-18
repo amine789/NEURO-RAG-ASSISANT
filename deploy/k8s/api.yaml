@@ -30,7 +30,7 @@ spec:
       containers:
         - name: api
           # set the tag to the commit being deployed (git rev-parse --short HEAD) before applying
-          image: ghcr.io/amine789/neuro-rag-api:SHA
+          image: ghcr.io/amine789/neuro-rag-api:148b1db
           ports:
             - containerPort: 8000
           envFrom:

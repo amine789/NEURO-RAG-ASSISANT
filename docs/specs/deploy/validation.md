@@ -50,3 +50,27 @@ The examples are in the spec; this file says where each one runs.
     `docker run --env-file` (and `kubectl create secret --from-env-file`) keep them literally,
     so the keys and the Langfuse URL were broken inside the container ("Connection error",
     host `"https`). `.env` is now `NAME=value` with nothing around the value.
+| 2026-11-18 | v3, `c1f42cd` (image `148b1db`) | DP-5 passed | Qdrant on the VM restored from the laptop's snapshot: 4313 points |
+
+### 2026-11-18 details (the cluster, part 1)
+
+- **VM:** Hetzner CPX22, Helsinki, `204.168.182.10`; k3s v1.37.2+k3s1; `kubectl get nodes` shows one node `Ready`.
+- **Image:** `ghcr.io/amine789/neuro-rag-api:148b1db` pushed and public (an anonymous pull request got 200).
+- **Secret:** `neuro-rag-keys` created from `.env` (7 entries).
+- **Qdrant:** `qdrant-0` `1/1 Running`; snapshot `papers-8328499992741243-2026-11-18-16-24-54.snapshot`
+  (28,075,008 bytes, sha256 `f73a77fe…a7f080`, matching Qdrant's checksum) uploaded through
+  `kubectl port-forward svc/qdrant 6334:6333`.
+- **DP-5:** `points_count` 4313.
+- **Snags, for the record:** a new terminal without `KUBECONFIG` made kubectl try `localhost:8080`;
+  a stopped port-forward made the first count fail with an empty answer (and `curl -s` hid the failed upload).
+  Each step and its fix is in `docs/deploy-commands-explained.pdf`.
+| 2026-11-18 | v3 (image `148b1db`) | live; DP-6 and DP-7 passed | `http://204.168.182.10/ask` answers from the internet |
+
+### 2026-11-18 details (the cluster, part 2: live)
+
+- **Step 5:** the image tag set in `api.yaml` (`148b1db`), then `kubectl apply -f deploy/k8s/`
+  created the API Deployment and Service, the rate-limit Middleware and the Ingress (Qdrant unchanged).
+- **DP-6:** `curl http://204.168.182.10/health` gave `{"status":"ok"}`; q01 on
+  `http://204.168.182.10/ask` gave a 200 with three sentences cited `[1]`, PMC6226095 page 6.
+- **DP-7:** from outside, `204.168.182.10:6333` and `:8000` don't answer (curl code 000); only port 80 is public.
+- **Still to check:** DP-4 (`kubectl get pods`), DP-8, DP-9, DP-10 (after a top-up), DP-11, DP-12, DP-13.
