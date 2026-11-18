@@ -63,10 +63,8 @@ Built in this order. Status: planned → spec written → built → validated.
 | 6 | Tracing | every request is traced: its steps, timings, tokens and cost | validated (2026-11-16) |
 | 7 | Deployment | the API runs on Kubernetes with a public URL, and the eval runs against it. Decided in its spec (2026-11-16): k3s on one small VM (about $5–10 a month; a managed cluster is about $70+), with the API as a Deployment, Qdrant as a StatefulSet with a persistent volume, the API key as a Secret, and an Ingress for the URL. Also: CI with GitHub Actions running the free tests (`pytest -m "not integration and not llm"`) on every push; CD (build, push the image, update k3s automatically) added once the manual deploy works | validated (2026-11-18), live at http://204.168.182.10 |
 | 8 | Better search | a reranker or tuning, kept only if the eval improves on the baseline | validated (2026-11-18), live: dense top 20 reranked by a cross-encoder (Xenova/ms-marco-MiniLM-L-6-v2), top 5; eval correctness 0.67 → 0.78, faithful 0.97 = 0.97, page@5 0.67 → 0.72, p50 1.7 → 2.5 s, $0.0052 → $0.0054 a question (`eval/results/2026-11-18_2157_rerank/`); image 1518ab4; VM 2.0 GB of 3.7 GB still available |
-| 9 | Question rewriting | a question is rewritten into clear English before search (translating non-English ones, fixing typos and casual wording), kept only if the eval improves on the baseline; translating would let the 4 non-English questions back into the eval | planned |
-| 10 | "Not in the papers" | questions the papers can't answer are recognised, measured | planned |
-| 11 | Web search | those questions are answered from vetted web sources, marked as web | planned |   
-| 12 | Declining | off-topic questions are declined, with no false declines on borderline ones | planned |
+| 9 | **Corrective RAG loop** (the project's core: `advanded_rag_project.txt` steps 4, 5, 7) | each question goes through explicit, inspectable states: **retrieve** (search + rerank) → **grade** (are these chunks good enough to answer from?) → if not, **rewrite** the question once (clear English, typos and casual wording fixed) and **retry** retrieval → if still not, **web fallback** (vetted sources, marked as web) → **generate** the cited answer. The API returns the path taken and whether the web was used (`path`, `used_web`), and every state is a step in the Langfuse trace. Proven with an eval **with vs without the loop**, against row 8 (correctness 0.78). To decide in its spec: the grader (choice 8: a reranker-score threshold first, then an LLM grader), the web search tool, and the orchestration (LangGraph, as the plan suggests, or a plain function with the same states) | planned |
+| 10 | Declining | off-topic questions are declined before the loop runs, with no false declines on borderline ones | planned |
 
 1–7 is the walking skeleton: the simplest version that works end to end, and is
 live. Each row after it is an improvement, kept only if the eval shows it helps.
@@ -81,8 +79,8 @@ live. Each row after it is an improvement, kept only if the eval shows it helps.
 3. **Deployment is in the skeleton (row 7), not at the end.** v2 left it last
    and never reached it; deploying early means every later row is measured on
    the live system.
-4. **Rows 8–12 are named by the problem, not the technique.** "Better search"
-   may become hybrid search, a reranker or both; "Not in the papers" may become
+4. **Rows 8–10 are named by the problem, not the technique.** "Better search"
+   may become hybrid search, a reranker or both; the loop's grader may become
    a reranker score or an LLM grader. Each is chosen in its spec from what the
    eval shows. v2's results (hybrid search, a reranker at 0.68 → 0.75
    correctness, an LLM grader) are evidence for those specs.
@@ -105,12 +103,19 @@ live. Each row after it is an improvement, kept only if the eval shows it helps.
    is calls avoided: a cheap "no" stops the pipeline before Claude answers.
    The answer itself and the eval judges stay with Claude. To confirm in
    each row's spec:
-   - **row 9:** "does this question need rewriting?" gates the rewrite call,
-     so it runs only on casual or misspelled questions;
-   - **row 10:** "do these chunks answer the question?" (a reranker score
-     from row 8 is the first candidate);
-   - **row 11:** "go to the web?" is row 10's answer, no extra model;
-   - **row 12:** "on-topic?" runs before search, so an off-domain question
+   - **row 9, the corrective loop's grade:** "are these chunks good enough
+     to answer from?" (row 8's reranker score is the first candidate); it
+     decides both the rewrite-and-retry and the web fallback, so the rewrite
+     call runs only when retrieval is weak;
+   - **row 10:** "on-topic?" runs before search, so an off-domain question
      costs no Claude call (in the baseline it still cost about $0.0024).
+
+9. **Rows 9, 10 and 11 merged into one corrective RAG loop** (2026-11-18).
+   They were "question rewriting", "not in the papers" and "web search": the
+   three parts of the corrective loop that `advanded_rag_project.txt` names as
+   the project's point (grade → rewrite/retry → web fallback, as explicit
+   states, proven by an eval with vs without the loop). Split under neutral
+   names, the loop itself had dropped out of the plan. Old row 12 (declining)
+   is now row 10.
 
 Candidates for later, each measured before it is kept: streaming answers.

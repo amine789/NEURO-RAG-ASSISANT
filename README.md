@@ -90,7 +90,8 @@ tests named after them.
 | 6 | Tracing (Langfuse) | ✅ validated |
 | 7 | Deployment (Kubernetes, public URL, CI) | ✅ validated, live |
 | 8 | Better search (reranker) | ✅ validated, live: correctness 0.67 → 0.78 |
-| 9–12 | Question rewriting, "not in the papers", web search, declining | ⏳ planned, each kept only if the eval improves |
+| 9 | **Corrective RAG loop**: retrieve → grade → rewrite and retry → web fallback → generate | ⏳ next: proven with an eval with vs without the loop |
+| 10 | Declining off-topic questions | ⏳ planned |
 
 The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
