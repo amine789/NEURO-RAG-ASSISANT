@@ -6,11 +6,15 @@ Ask a question over HTTP; get a short answer where every claim carries a
 `[n]` marker that points to a paper and page. When the papers don't cover it,
 it says so instead of guessing.
 
+**Live:** `http://204.168.182.10/ask` (HTTP, rate-limited to about 10 requests a minute per IP).
+
 ![Python](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
 ![Qdrant](https://img.shields.io/badge/vectors-Qdrant-DC244C)
 ![Claude](https://img.shields.io/badge/LLM-Claude%20Haiku%204.5-D97757)
 ![LangChain](https://img.shields.io/badge/LangChain-ChatAnthropic-1C3C3C)
+![k3s](https://img.shields.io/badge/deploy-k3s-FFC61C?logo=k3s&logoColor=black)
+[![ci](https://github.com/amine789/NEURO-RAG-ASSISANT/actions/workflows/ci.yml/badge.svg)](https://github.com/amine789/NEURO-RAG-ASSISANT/actions/workflows/ci.yml)
 
 ---
 
@@ -84,7 +88,7 @@ tests named after them.
 | 4 | Eval and baseline score | ✅ validated: correctness 0.67, faithful 0.97 |
 | 5 | API (`POST /ask`) | ✅ validated |
 | 6 | Tracing (Langfuse) | ✅ validated |
-| 7 | Deployment (Kubernetes, public URL) | ⏳ planned |
+| 7 | Deployment (Kubernetes, public URL, CI) | 🚀 live; eval against it pending |
 | 8–12 | Better search, question rewriting, "not in the papers", web search, declining | ⏳ planned, each kept only if the eval improves |
 
 The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -151,10 +155,42 @@ src/neuro_rag/
 └── config.py      models, paths, URLs; keys come from .env
 docs/
 ├── ROADMAP.md     product, scope, the 12 rows and their status
-└── specs/<row>/   spec.md (criteria) + validation.md (how checked, results)
+├── specs/<row>/   spec.md (criteria) + validation.md (how checked, results)
+└── deploy-commands-explained.pdf   every server command of row 7, explained
+deploy/k8s/        qdrant.yaml, api.yaml, ingress.yaml (k3s manifests)
+Dockerfile, requirements.lock   the API image, with pinned versions
+.github/workflows/ci.yml       the free tests on every push
 eval/questions.jsonl   54 questions with reference answers and expected papers
 tests/             one test per acceptance criterion
 ```
+
+## Deployment
+
+The API runs on **k3s** (light Kubernetes) on one Hetzner VM in Helsinki:
+
+```
+internet ─:80─► Traefik (rate limit) ─► API pod (our image) ─► Qdrant pod (StatefulSet, 4,313 chunks on its own disk)
+                                              └──► Claude API, Langfuse
+```
+
+- **Image:** `ghcr.io/amine789/neuro-rag-api:<commit>`, built from the `Dockerfile` with the
+  versions pinned in `requirements.lock`, the embedding models inside, no keys.
+- **Keys:** a Kubernetes Secret made from `.env`, never in git or the image.
+- **Index:** copied from the laptop's Qdrant as a snapshot; checked to give the same dense
+  top 5 for every eval question.
+- **Only port 80 is public;** Qdrant is reachable only inside the cluster.
+
+A new version is two commands:
+
+```bash
+docker build -t ghcr.io/amine789/neuro-rag-api:$(git rev-parse --short HEAD) . && docker push ghcr.io/amine789/neuro-rag-api:$(git rev-parse --short HEAD)
+# set that tag in deploy/k8s/api.yaml, then:
+kubectl apply -f deploy/k8s/
+```
+
+The first-time setup (VM, k3s, kubectl, registry, Secret, snapshot) is in
+[docs/specs/deploy/spec.md](docs/specs/deploy/spec.md) and explained command by command in
+[docs/deploy-commands-explained.pdf](docs/deploy-commands-explained.pdf).
 
 ## Design choices
 

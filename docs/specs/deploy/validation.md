@@ -90,4 +90,7 @@ The examples are in the spec; this file says where each one runs.
 - **DP-13 prep:** `.github/workflows/ci.yml` written (free tests, pinned versions). IN-11 marked
   `integration`: it reads `data/tei/PMC6226095.tei.xml`, which is gitignored, so it would fail on
   GitHub's machine; it stays a laptop test.
-- **Still to check:** DP-10 (after a top-up), DP-13 (push and see the run).
+- **DP-13:** the push of `0003986` started the `ci` workflow on GitHub Actions; the run was green
+  (free tests passed, integration and llm deselected).
+- **Still to check:** DP-10, the full eval against the deployment (~$0.26, after a top-up). Row 7
+  becomes validated when it passes.
