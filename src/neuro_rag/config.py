@@ -15,6 +15,7 @@ RESULTS_DIR = Path(__file__).parents[2] / "eval" / "results"
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 EMBED_SIZE = 384
 SPARSE_MODEL = "Qdrant/bm25"
+RERANK_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"  # row 8: cross-encoder, fastembed
 COLLECTION = "papers"
 BATCH = 64
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")

@@ -5,9 +5,10 @@ from pathlib import Path
 import argparse
 
 from fastembed import SparseTextEmbedding, TextEmbedding
+from fastembed.rerank.cross_encoder import TextCrossEncoder
 from qdrant_client import QdrantClient
 
-from neuro_rag.config import EMBED_MODEL, PRICE_IN, PRICE_OUT, QDRANT_URL, QUESTIONS_PATH, SPARSE_MODEL, RESULTS_DIR
+from neuro_rag.config import EMBED_MODEL, PRICE_IN, PRICE_OUT, QDRANT_URL, QUESTIONS_PATH, RERANK_MODEL, SPARSE_MODEL, RESULTS_DIR
 from neuro_rag.eval.judge import judge_correctness, judge_faithfulness
 from neuro_rag.eval.report import build_report
 from neuro_rag.generation.answer import Answer, answer, make_llm
@@ -134,6 +135,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--name", required=True)
     parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument("--rerank", action="store_true", help="dense top 20, reranked, keep 5 (row 8)")
     args = parser.parse_args()
     out_dir = RESULTS_DIR / f"{datetime.now():%Y-%m-%d_%H%M}_{args.name}"
     out_dir.mkdir(parents=True, exist_ok=False)
@@ -141,9 +143,10 @@ def main():
     embed = TextEmbedding(EMBED_MODEL).embed
     sparse_embed = SparseTextEmbedding(SPARSE_MODEL).query_embed
     llm = make_llm()
+    rerank = TextCrossEncoder(RERANK_MODEL).rerank if args.rerank else None
 
     def search_fn(question):
-        return search(question, client, embed, sparse_embed)       # dense, top 5 (defaults)
+        return search(question, client, embed, sparse_embed, rerank=rerank)  # dense, top 5; reranked if --rerank
 
     def answer_fn(question, hits):
         return answer(question, hits, llm)

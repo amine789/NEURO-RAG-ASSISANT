@@ -1,5 +1,5 @@
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from fastembed import SparseTextEmbedding, TextEmbedding
 from qdrant_client import QdrantClient
@@ -21,15 +21,16 @@ class Hit:
 
 
 def search(question: str, client: QdrantClient, embed, sparse_embed, k: int = 5,
-           mode: str = "dense", name: str = COLLECTION) -> list[Hit]:
+           mode: str = "dense", name: str = COLLECTION, rerank=None) -> list[Hit]:
     if mode not in ("dense", "hybrid"):
         raise ValueError(f"unknown mode: {mode}")
     question = question.strip()
     if not question:
         raise ValueError("empty question")
+    limit = 20 if rerank else k  # fetch 20 when reranking, keep the best k after
     dense = list(embed([question]))[0].tolist()
     if mode == "dense":
-        points = client.query_points(name, query=dense, using="dense", limit=k, with_payload=True).points
+        points = client.query_points(name, query=dense, using="dense", limit=limit, with_payload=True).points
     else:
         s = list(sparse_embed([question]))[0]
         points = client.query_points(
@@ -39,12 +40,17 @@ def search(question: str, client: QdrantClient, embed, sparse_embed, k: int = 5,
                 Prefetch(query=SparseVector(indices=s.indices.tolist(), values=s.values.tolist()), using="bm25", limit=20),
             ],
             query=FusionQuery(fusion=Fusion.RRF),
-            limit=k,
+            limit=limit,
             with_payload=True,
         ).points
 
     fields = ("chunk_id", "pmcid", "page", "title", "citation", "license", "text")
-    return [Hit(**{f: p.payload[f] for f in fields}, score=p.score) for p in points]
+    hits = [Hit(**{f: p.payload[f] for f in fields}, score=p.score) for p in points]
+    if rerank:  # score each chunk against the question; the score becomes the reranker's
+        scores = rerank(question, [h.text for h in hits])
+        hits = sorted((replace(h, score=float(s)) for h, s in zip(hits, scores)),
+                      key=lambda h: h.score, reverse=True)[:k]
+    return hits
 
 
 def main():

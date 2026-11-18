@@ -15,7 +15,9 @@ RUN pip install --no-cache-dir --no-deps .
 # (the names repeat config.py's EMBED_MODEL and SPARSE_MODEL)
 ENV FASTEMBED_CACHE_PATH=/models
 RUN python -c "from fastembed import TextEmbedding, SparseTextEmbedding; \
-TextEmbedding('sentence-transformers/all-MiniLM-L6-v2'); SparseTextEmbedding('Qdrant/bm25')"
+from fastembed.rerank.cross_encoder import TextCrossEncoder; \
+TextEmbedding('sentence-transformers/all-MiniLM-L6-v2'); SparseTextEmbedding('Qdrant/bm25'); \
+TextCrossEncoder('Xenova/ms-marco-MiniLM-L-6-v2')"
 
 EXPOSE 8000
 

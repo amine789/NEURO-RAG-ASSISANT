@@ -1,22 +1,23 @@
-"""Dense against hybrid search on the eval questions' expected sources.
+"""Dense, hybrid and dense + rerank search on the eval questions' expected sources.
 
     python scripts/compare_search.py
 """
 import csv
 import json
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 
 from fastembed import SparseTextEmbedding, TextEmbedding
+from fastembed.rerank.cross_encoder import TextCrossEncoder
 from qdrant_client import QdrantClient
 
-from neuro_rag.config import EMBED_MODEL, QDRANT_URL, SPARSE_MODEL
+from neuro_rag.config import EMBED_MODEL, QDRANT_URL, RERANK_MODEL, SPARSE_MODEL
 from neuro_rag.retrieval.search import search
 
 ROOT = Path(__file__).parents[1]
 QUESTIONS = ROOT / "eval" / "questions.jsonl"
 RESULTS_DIR = ROOT / "eval" / "results"
-MODES = ("dense", "hybrid")
+MODES = ("dense", "hybrid", "rerank")  # rerank = dense top 20, reranked, top 5 (row 8)
 
 
 def load_questions(path: Path) -> list[dict]:
@@ -42,11 +43,15 @@ def main():
     client = QdrantClient(url=QDRANT_URL)
     embed = TextEmbedding(EMBED_MODEL).embed
     sparse_embed = SparseTextEmbedding(SPARSE_MODEL).query_embed
+    rerank = TextCrossEncoder(RERANK_MODEL).rerank
 
     rows = []
     for q in questions:
         for mode in MODES:
-            hits = search(q["question"], client, embed, sparse_embed, k=5, mode=mode)
+            if mode == "rerank":
+                hits = search(q["question"], client, embed, sparse_embed, k=5, mode="dense", rerank=rerank)
+            else:
+                hits = search(q["question"], client, embed, sparse_embed, k=5, mode=mode)
             paper_hit, page_hit = check(q, hits)
             rows.append({
                 "id": q["id"],
@@ -59,9 +64,9 @@ def main():
 
     english = [r for r in rows if not r["type"].startswith("multilingual_")]
     multilingual = [r for r in rows if r["type"].startswith("multilingual_")]
-    for label, group in ((f"{len(english) // 2} English questions", english),
-                         (f"{len(multilingual) // 2} multilingual questions", multilingual)):
-        total = len(group) // 2
+    for label, group in ((f"{len(english) // len(MODES)} English questions", english),
+                         (f"{len(multilingual) // len(MODES)} multilingual questions", multilingual)):
+        total = len(group) // len(MODES)
         print(label)
         print("mode     paper@5   page@5")
         for mode in MODES:
@@ -78,7 +83,7 @@ def main():
     print("differ on page@5:", ", ".join(differ) if differ else "none")
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = RESULTS_DIR / f"search_compare_{date.today().isoformat()}.csv"
+    out = RESULTS_DIR / f"search_compare_{datetime.now():%Y-%m-%d_%H%M}.csv"  # time too: never overwrite an earlier run
     with open(out, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["id", "type", "mode", "paper_hit", "page_hit", "chunk_ids"])
         writer.writeheader()

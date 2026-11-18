@@ -3,12 +3,13 @@ from typing import Annotated
 
 from fastapi import FastAPI, HTTPException
 from fastembed import SparseTextEmbedding, TextEmbedding
+from fastembed.rerank.cross_encoder import TextCrossEncoder
 from langfuse import observe
 from langfuse.langchain import CallbackHandler
 from pydantic import BaseModel, StringConstraints
 from qdrant_client import QdrantClient
 
-from neuro_rag.config import EMBED_MODEL, QDRANT_URL, SPARSE_MODEL
+from neuro_rag.config import EMBED_MODEL, QDRANT_URL, SPARSE_MODEL, RERANK_MODEL
 from neuro_rag.generation.answer import answer, make_llm
 from neuro_rag.retrieval.search import search
 
@@ -47,10 +48,11 @@ def build_pipeline():
     client = QdrantClient(url=QDRANT_URL)
     embed = TextEmbedding(EMBED_MODEL).embed
     sparse_embed = SparseTextEmbedding(SPARSE_MODEL).query_embed
+    rerank = TextCrossEncoder(RERANK_MODEL).rerank
     llm = make_llm().with_config(callbacks=[CallbackHandler()])  # every Claude call → a Langfuse generation
 
     def search_fn(question):
-        return search(question, client, embed, sparse_embed)  # dense, top 5 (defaults)
+        return search(question, client, embed, sparse_embed, rerank=rerank)  # dense, top 5 (defaults)
 
     def answer_fn(question, hits):
         return answer(question, hits, llm)

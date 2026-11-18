@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+import numpy as np
 import pytest
 from fastembed import SparseTextEmbedding, TextEmbedding
 from qdrant_client import QdrantClient
@@ -126,3 +129,44 @@ def test_SE9_unknown_mode_refused():
         search("Does sleep help memory?", client, embed, sparse_embed, mode="sparse")
 
     assert (embed.calls, sparse_embed.calls, client.calls) == (0, 0, 0)
+
+
+class FakeQdrant:
+    """Returns n made-up chunks, best Qdrant score first, and records the limit it was asked for."""
+
+    def __init__(self):
+        self.limits = []
+
+    def query_points(self, name, query=None, using=None, limit=10, with_payload=True, **kwargs):
+        self.limits.append(limit)
+        points = [SimpleNamespace(score=1 - i / 100, payload={
+            "chunk_id": f"c{i}", "pmcid": "PMC1", "page": i, "title": "T", "citation": "C",
+            "license": "CC BY", "text": f"chunk {i}"}) for i in range(limit)]
+        return SimpleNamespace(points=points)
+
+
+def fake_embed(texts):
+    return [np.zeros(384)]
+
+
+def test_SE12_rerank_fetches_20_reorders_keeps_5():
+    client = FakeQdrant()
+
+    def reverse_rerank(question, texts):  # scores the last chunk best: c19 > c18 > ...
+        return [float(i) for i, _ in enumerate(texts)]
+
+    hits = search(Q01, client, fake_embed, None, k=5, rerank=reverse_rerank)
+
+    assert client.limits == [20]
+    assert [h.chunk_id for h in hits] == ["c19", "c18", "c17", "c16", "c15"]
+    assert [h.score for h in hits] == [19.0, 18.0, 17.0, 16.0, 15.0]
+
+
+def test_SE13_no_rerank_fetches_k_order_unchanged():
+    client = FakeQdrant()
+
+    hits = search(Q01, client, fake_embed, None, k=5)
+
+    assert client.limits == [5]
+    assert [h.chunk_id for h in hits] == ["c0", "c1", "c2", "c3", "c4"]
+    assert [h.score for h in hits] == [1.0, 0.99, 0.98, 0.97, 0.96]
