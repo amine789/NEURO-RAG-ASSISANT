@@ -88,7 +88,7 @@ tests named after them.
 | 4 | Eval and baseline score | ✅ validated: correctness 0.67, faithful 0.97 |
 | 5 | API (`POST /ask`) | ✅ validated |
 | 6 | Tracing (Langfuse) | ✅ validated |
-| 7 | Deployment (Kubernetes, public URL, CI) | 🚀 live; eval against it pending |
+| 7 | Deployment (Kubernetes, public URL, CI) | ✅ validated, live |
 | 8–12 | Better search, question rewriting, "not in the papers", web search, declining | ⏳ planned, each kept only if the eval improves |
 
 The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md).

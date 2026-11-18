@@ -92,5 +92,8 @@ The examples are in the spec; this file says where each one runs.
   GitHub's machine; it stays a laptop test.
 - **DP-13:** the push of `0003986` started the `ci` workflow on GitHub Actions; the run was green
   (free tests passed, integration and llm deselected).
-- **Still to check:** DP-10, the full eval against the deployment (~$0.26, after a top-up). Row 7
-  becomes validated when it passes.
+- **DP-10:** `eval/results/2026-11-18_2129_deployed/`: 50 runs, 0 failed, $0.26. Against the
+  baseline: paper@5 0.89 = 0.89, page@5 0.67 = 0.67, cites expected 0.86 = 0.86, not covered
+  1.00 = 1.00, correctness 0.68 vs 0.67, faithful 0.91 vs 0.97. Accepted 2026-11-18.
+
+| 2026-11-18 | v3 (image `148b1db`) | DP-1 to DP-13 done; row 7 validated | live at `http://204.168.182.10` |
