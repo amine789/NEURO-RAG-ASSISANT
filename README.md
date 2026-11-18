@@ -89,7 +89,8 @@ tests named after them.
 | 5 | API (`POST /ask`) | ✅ validated |
 | 6 | Tracing (Langfuse) | ✅ validated |
 | 7 | Deployment (Kubernetes, public URL, CI) | ✅ validated, live |
-| 8–12 | Better search, question rewriting, "not in the papers", web search, declining | ⏳ planned, each kept only if the eval improves |
+| 8 | Better search (reranker) | ✅ validated, live: correctness 0.67 → 0.78 |
+| 9–12 | Question rewriting, "not in the papers", web search, declining | ⏳ planned, each kept only if the eval improves |
 
 The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
