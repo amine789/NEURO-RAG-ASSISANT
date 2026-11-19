@@ -5,7 +5,7 @@ How each acceptance criterion in [spec.md](spec.md) is checked, and the results.
 ## Checks
 
 - **Scripts** (phase 1): G3's data and training (about $0.50 once, for the
-  synthetic questions), then the grader comparison (about $0.06).
+  synthetic questions), then the grader comparison (about $0.001: only Jev is hosted).
 - **Unit** (`tests/test_crag.py`, free): the loop with fakes; no Qdrant, no API call.
 - **By hand:** the server with tracing on, and the Langfuse UI.
 - **Eval** (about $0.30): `python -m neuro_rag.eval.run --name crag --rerank --crag`.
@@ -34,3 +34,4 @@ How each acceptance criterion in [spec.md](spec.md) is checked, and the results.
 | 2026-11-19 | v3, uncommitted | threshold grader removed | three graders: Jev, fine-tuned, Haiku |
 | 2026-11-19 | v3, uncommitted | Laya added as G4 | four graders: Jev, fine-tuned, Haiku, Laya |
 | 2026-11-19 | v3, uncommitted | choices 1–11 accepted | not built yet |
+| 2026-11-19 | v3, uncommitted | Gemma 3 1B replaces Haiku as G3 (choice 12) | the four graders: Jev, fine-tuned, Gemma, Laya |
