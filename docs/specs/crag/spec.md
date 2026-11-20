@@ -81,21 +81,37 @@ The 50 eval questions are the **test set**. Nothing is tuned on them:
 
 ### G1's training data
 
-- **Answerable pairs:** Haiku writes 3 questions for each of 500 random chunks,
-  in the eval's styles (direct, casual, typos, loose terms; prompt in
-  `scripts/make_grader_data.py`). Positive: (question, its chunk). Negatives:
-  (question, the reranker's top 3 chunks from **other** papers).
+G1 is trained on **papers the system has never seen**, so its test score
+measures how well it judges relevance on new papers, not how well it remembers
+ours. None of the 52 indexed papers (and none of the 14 excluded candidates) is
+used for training.
+
+- **Training papers:** 40 new open-access papers on hippocampus and memory,
+  found with NCBI's E-utilities on PubMed Central's open-access subset (query in
+  `scripts/fetch_grader_papers.py`), CC BY or CC BY-NC, published 2015 or later,
+  with a PDF. Any PMCID already in `data/candidates.csv` is skipped. Saved under
+  `data/grader/` (gitignored), with their own catalog `data/grader/catalog.csv`.
+- **Same pipeline as row 1:** parsed by GROBID with `parse_pdf`, cut with
+  `chunk_page` (200 tokens, 50 overlap), written to a JSONL file; they are not
+  indexed into Qdrant, so the live system never sees them. About 3,000 chunks.
+- **Answerable pairs:** Haiku writes 3 questions for each of 500 chunks drawn
+  across the 40 papers, in the eval's styles (direct, casual, typos and loose
+  terms; prompt in `scripts/make_grader_data.py`). Positive: (question, its
+  chunk). Hard negatives: (question, the 3 best-reranked chunks from **other**
+  training papers), found with in-memory dense search plus row 8's reranker over
+  the 3,000 chunks.
 - **Unanswerable questions:** Haiku writes 300: 150 off-domain (cooking, tax,
-  code, general medicine) and 150 on-topic neuroscience the 52 papers don't
-  cover. Each paired with its top 3 reranked chunks, all negatives.
+  code, general medicine) and 150 on neuroscience topics outside these papers.
+  Each paired with its 3 best-reranked training chunks, all negatives.
 - **No leaks:** any synthetic question whose MiniLM embedding has cosine ≥ 0.9
-  with an eval question is dropped.
-- **Split by paper:** 80% of papers train, 20% dev; the dev set picks the
-  number of epochs, nothing else.
+  with an eval question is dropped (a second guard; the papers already differ).
+- **Split by paper:** 32 papers train, 8 dev; the dev set picks the number of
+  epochs, nothing else.
 - **Training:** `sentence-transformers` `CrossEncoder`, binary labels, on the
   laptop's CPU (a dev dependency, not in the image). Exported to ONNX and run
   in the API with `onnxruntime` and `tokenizers`, which are already in the lock.
-- Cost: about 1,800 Haiku-written questions, about $0.50, once.
+- Cost: about 1,800 Haiku-written questions, about $0.50, once; GROBID locally
+  (`docker compose --profile ingest up -d`), about 3 minutes for 40 papers.
 
 ### Choosing the grader
 
@@ -158,7 +174,8 @@ Every function is passed in, so the tests drive every branch with fakes.
 | `src/neuro_rag/eval/run.py` | `--crag`; the run record gains `path` and `used_web` |
 | `src/neuro_rag/eval/report.py` | a `web used` column for `web_fallback` questions; rewrites per question |
 | `scripts/compare_graders.py` | phase 1: the four graders on the eval questions, the table |
-| `scripts/make_grader_data.py` | G1's synthetic data |
+| `scripts/fetch_grader_papers.py` | G1's 40 training papers: search, download, catalog |
+| `scripts/make_grader_data.py` | G1's synthetic data: parse, chunk, questions, pairs, split |
 | `scripts/train_grader.py` | G1's training, dev check and ONNX export |
 | `tests/test_crag.py` | the loop's criteria, with fakes |
 | `docker-compose.yml`, `deploy/k8s/llm-local.yaml` | G2 and G3: llama.cpp servers for Gemma and Laya, locally and, only for the chosen one, on the VM |
@@ -222,17 +239,26 @@ Every function is passed in, so the tests drive every branch with fakes.
     from the model card, or llama.cpp) is checked before wiring. Its licence,
     LFM Open License v1.0, is free for us (it restricts companies above $10M
     revenue).
+14. **G1 trains on 40 new papers, not on the indexed 52** (2026-11-20).
+    Sampling chunks from the indexed corpus would let G1 see the very chunks
+    the eval questions are answered from (they draw on 29 of the 52 papers), and
+    its test score would partly measure memory. Training on unseen papers keeps
+    the test honest and checks transfer to new papers. The alternative, training
+    on the 23 papers no eval question uses, was simpler but stays inside the
+    same corpus.
 
 ## Acceptance criteria
 
 ### Phase 1: graders (scripts)
 
-**CR-1: G1's training data is clean.**
-- **When** `python scripts/make_grader_data.py` runs.
-- **Then** it writes the training and dev files, prints their sizes (about
-  1,500 answerable and 300 unanswerable questions before filtering), how many
-  were dropped as too close to an eval question, and shows no paper in both
-  train and dev.
+**CR-1: G1's training data comes from new papers only, and is clean.**
+- **When** `python scripts/fetch_grader_papers.py` then
+  `python scripts/make_grader_data.py` run.
+- **Then** the catalog has 40 papers, none of whose PMCIDs is in
+  `data/candidates.csv`; the script writes the training and dev files, prints
+  their sizes (about 1,500 answerable and 300 unanswerable questions before
+  filtering) and how many were dropped as too close to an eval question, and
+  shows no paper in both train and dev.
 
 **CR-2: G1 trains and beats its starting point on the dev set.**
 - **When** `python scripts/train_grader.py` runs.

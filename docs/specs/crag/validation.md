@@ -12,7 +12,7 @@ How each acceptance criterion in [spec.md](spec.md) is checked, and the results.
 
 | Criterion | Kind | Check |
 |---|---|---|
-| CR-1 | script | `python scripts/make_grader_data.py`: sizes, drops, no paper in both splits |
+| CR-1 | script | `fetch_grader_papers.py` then `make_grader_data.py`: 40 new papers, none in the corpus; sizes, drops, no paper in both splits |
 | CR-2 | script | `python scripts/train_grader.py`: dev accuracy above the un-tuned reranker's |
 | CR-3 | script | `python scripts/compare_graders.py`: the four-grader table and the choice |
 | CR-4 | unit | `test_CR4_good_retrieval_answers_directly` |
@@ -38,3 +38,4 @@ How each acceptance criterion in [spec.md](spec.md) is checked, and the results.
 | 2026-11-19 | v3, uncommitted | choice 4 updated: Jev's provider chosen by a documented HTTP endpoint | routes: TypeSafe, AIMLAPI, Vercel AI Gateway, OpenRouter |
 | 2026-11-20 | v3, uncommitted | Jev dropped (paid) | three free graders: fine-tuned (G1), Gemma (G2), Laya (G3) |
 | 2026-11-20 | v3, uncommitted | Liquid d1 added as G4 (choice 13) | four free graders: fine-tuned, Gemma, Laya, Liquid d1 |
+| 2026-11-20 | v3, uncommitted | G1 trains on 40 new papers (choice 14) | no indexed or eval paper in its training data |
