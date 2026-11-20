@@ -20,6 +20,8 @@ COLLECTION = "papers"
 BATCH = 64
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
 GROBID_URL = os.environ.get("GROBID_URL", "http://localhost:8070")
+# row 9, grader G2: llama.cpp server for Gemma 3 1B (docker-compose service gemma1b)
+GEMMA_URL = os.environ.get("GEMMA_URL", "http://localhost:8081")
 
 LLM_MODEL = "claude-haiku-4-5"
 PRICE_IN = 1.00

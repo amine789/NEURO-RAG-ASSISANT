@@ -12,5 +12,23 @@ services:
     ports:
       - "8070:8070"
 
+  # Row 9, grader G2: Gemma 3 1B (instruction-tuned, Q4_K_M, about 0.8 GB) behind
+  # llama.cpp's HTTP server. -hf downloads the GGUF from Hugging Face on first start
+  # into LLAMA_CACHE (a volume, so only once). OpenAI-style API with logprobs at
+  # http://localhost:8081/v1/chat/completions. Started only for the grader comparison:
+  #   docker compose --profile graders up -d gemma1b
+  # (Gemma 3 270M was tried first and dropped: it said yes to an off-topic question.)
+  gemma1b:
+    image: ghcr.io/ggml-org/llama.cpp:server-b12098
+    profiles: ["graders"]
+    command: ["-hf", "ggml-org/gemma-3-1b-it-GGUF:Q4_K_M", "--host", "0.0.0.0", "--port", "8080", "-c", "4096"]
+    environment:
+      LLAMA_CACHE: /models
+    ports:
+      - "8081:8080"
+    volumes:
+      - llm_models:/models
+
 volumes:
   qdrant_storage:
+  llm_models:
