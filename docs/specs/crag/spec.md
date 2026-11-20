@@ -2,8 +2,8 @@
 
 Roadmap row 9, the project's core (`advanded_rag_project.txt` steps 4, 5 and 7):
 retrieval is graded, corrected when weak, and the path taken is visible. The
-grade is the loop's one decision, so four graders are compared for it, and the
-cheapest that is good enough is used (roadmap choice 8).
+grade is the loop's one decision, so four free graders are compared for it,
+and the best is used (roadmap choice 8).
 
 ## Goal
 
@@ -16,9 +16,9 @@ The API says which path was taken, and the trace shows every state.
 
 Built in three phases, each with numbers:
 
-1. **Graders compared** on the 50 eval questions: Jev (a hosted decision
-   model), a fine-tuned grader of our own, Gemma (a small open LLM run
-   locally), and Laya (an open decision model run locally).
+1. **Graders compared** on the 50 eval questions: a fine-tuned grader of our
+   own, Gemma (a small open LLM), and two open decision models, Laya and
+   Liquid's d1. All four run locally and are free.
 2. **The loop**, using phase 1's winner.
 3. **The proof:** the eval with the loop against the eval without it (row 8,
    correctness 0.78).
@@ -49,10 +49,10 @@ A grader takes the question and the 5 hits and returns a number in [0, 1]
 
 | Grader | How it decides | Cut | Cost a question | Tuned on our data? |
 |---|---|---|---|---|
-| **G1 Jev** | a yes/no question to Jev, `typesafe/jev` on AIMLAPI: "Do these passages contain the information needed to answer the question?"; returns the probability of yes | 0.5 | about $0.00002 (to check) | no: zero-shot |
-| **G2 fine-tuned** | our own cross-encoder: row 8's reranker (`ms-marco-MiniLM-L-6-v2`) fine-tuned on synthetic neuroscience pairs; the best of the 5 chunk probabilities | 0.5 | $0 | trained on synthetic data only |
-| **G3 Gemma** | the same yes/no question to Gemma 3 1B (instruction-tuned, quantized, about 0.8 GB), served locally by llama.cpp like Laya; the probability of yes is read from the answer token's log-probabilities | 0.5 | $0 (VM memory) | no: zero-shot |
-| **G4 Laya** | the same yes/no question to Laya, an open decision model (Apache-2.0, about 450 MB), served locally by llama.cpp (as in `rawwerks/rdm`); returns the probability of yes | 0.5 | $0 (VM memory) | no: zero-shot |
+| **G1 fine-tuned** | our own cross-encoder: row 8's reranker (`ms-marco-MiniLM-L-6-v2`) fine-tuned on synthetic neuroscience pairs; the best of the 5 chunk probabilities | 0.5 | $0 | trained on synthetic data only |
+| **G2 Gemma** | the yes/no question "Do these passages contain the information needed to answer the question?" to Gemma 3 1B (instruction-tuned, quantized, about 0.8 GB), served locally by llama.cpp like Laya; the probability of yes is read from the answer token's log-probabilities | 0.5 | $0 (VM memory) | no: zero-shot |
+| **G3 Laya** | the same yes/no question to Laya, an open decision model (Apache-2.0, about 450 MB), served locally by llama.cpp (as in `rawwerks/rdm`); returns the probability of yes | 0.5 | $0 (VM memory) | no: zero-shot |
+| **G4 Liquid d1** | the same yes/no question to Liquid AI's open decision model d1-3B (LFM Open License v1.0; about 2 GB quantized), run locally with the code on its Hugging Face model card; returns the probability of yes in one forward pass | 0.5 | $0 (laptop; see choice 13) | no: zero-shot |
 
 ### Labels: what "good retrieval" means on the eval
 
@@ -72,14 +72,14 @@ retrieval); the same labels are used for every grader, so the comparison is fair
 
 The 50 eval questions are the **test set**. Nothing is tuned on them:
 
-- **G1, G3, G4:** zero-shot; the question wording is written now (above) and
+- **G2, G3, G4:** zero-shot; the question wording is written now (above) and
   not changed after seeing results; the cut is fixed (0.5, yes/no), not fitted.
-- **G2:** trained and checked only on synthetic data (below); the eval
+- **G1:** trained and checked only on synthetic data (below); the eval
   questions are used once, for the final number.
 - A grader's mistakes are counted in two kinds: **weak judged good** (a bad
   answer goes out: costly) and **good judged weak** (an extra rewrite: cheap).
 
-### G2's training data
+### G1's training data
 
 - **Answerable pairs:** Haiku writes 3 questions for each of 500 random chunks,
   in the eval's styles (direct, casual, typos, loose terms; prompt in
@@ -99,9 +99,9 @@ The 50 eval questions are the **test set**. Nothing is tuned on them:
 
 ### Choosing the grader
 
-The cheapest grader whose accuracy is within 0.05 of the best, and whose
-"weak judged good" count is not higher than the best's. Order of cheapness:
-G2 = G3 = G4 ($0) < G1. Among the $0 graders, the one using less VM memory wins a tie.
+All four are free, so the most accurate one is used, unless another is within
+0.05 of it with fewer "weak judged good" mistakes; a remaining tie goes to the
+one using less VM memory.
 
 ## Phase 2: the loop
 
@@ -149,7 +149,7 @@ Every function is passed in, so the tests drive every branch with fakes.
 | File | Change |
 |---|---|
 | `src/neuro_rag/crag/__init__.py` | empty |
-| `src/neuro_rag/crag/graders.py` | `jev_grader`, `finetuned_grader`, `gemma_grader`, `laya_grader`: each `(question, hits) -> float` |
+| `src/neuro_rag/crag/graders.py` | `finetuned_grader`, `gemma_grader`, `laya_grader`, `liquid_grader`: each `(question, hits) -> float` |
 | `src/neuro_rag/crag/loop.py` | `CragResult(answer, path, used_web)`, `run_loop`, `rewrite`, `web_hits` |
 | `src/neuro_rag/config.py` | `GRADE_CUT`, `MAX_REWRITES`, `WEB_DOMAINS`, `GRADER` |
 | `src/neuro_rag/retrieval/search.py` | `Hit` gains `url: str = ""` (default keeps every caller and test unchanged) |
@@ -158,28 +158,28 @@ Every function is passed in, so the tests drive every branch with fakes.
 | `src/neuro_rag/eval/run.py` | `--crag`; the run record gains `path` and `used_web` |
 | `src/neuro_rag/eval/report.py` | a `web used` column for `web_fallback` questions; rewrites per question |
 | `scripts/compare_graders.py` | phase 1: the four graders on the eval questions, the table |
-| `scripts/make_grader_data.py` | G2's synthetic data |
-| `scripts/train_grader.py` | G2's training, dev check and ONNX export |
+| `scripts/make_grader_data.py` | G1's synthetic data |
+| `scripts/train_grader.py` | G1's training, dev check and ONNX export |
 | `tests/test_crag.py` | the loop's criteria, with fakes |
-| `.env`, the Secret | `AIMLAPI_API_KEY` for G1 |
-| `docker-compose.yml`, `deploy/k8s/llm-local.yaml` | G3 and G4: llama.cpp servers for Gemma and Laya, locally and, only for the chosen one, on the VM |
+| `docker-compose.yml`, `deploy/k8s/llm-local.yaml` | G2 and G3: llama.cpp servers for Gemma and Laya, locally and, only for the chosen one, on the VM |
 
 ## Choices, accepted 2026-11-19
 
-1. **Four graders compared, the cheapest good-enough one used.** G1 Jev,
-   G2 fine-tuned, G3 Gemma, G4 Laya, as above, with the rule in "Choosing the grader".
+1. **Four free graders compared, the best one used.** G1 fine-tuned, G2
+   Gemma, G3 Laya, G4 Liquid d1, as above, with the rule in "Choosing the grader".
    A threshold on row 8's raw reranker score was dropped (2026-11-19): its cut
    would have to be fitted, and a cut fitted on one set of questions doesn't
    transfer to questions written differently.
-2. **Nothing fitted on the eval:** G1, G3 and G4 zero-shot with fixed wording
-   and a fixed cut; G2 trained on synthetic data only, so the 50 eval questions stay a
+2. **Nothing fitted on the eval:** G2, G3 and G4 zero-shot with fixed wording
+   and a fixed cut; G1 trained on synthetic data only, so the 50 eval questions stay a
    test set.
-3. **G2 is row 8's reranker fine-tuned,** not a new model: the same size (about
+3. **G1 is row 8's reranker fine-tuned,** not a new model: the same size (about
    80 MB) on the VM, trained on CPU, run with `onnxruntime` (already in the
    lock). `sentence-transformers` and its PyTorch are dev-only.
-4. **Jev through AIMLAPI** (`typesafe/jev`): an account and a small top-up are
-   needed; the request format and price are checked against the live docs
-   before wiring it.
+4. **Jev dropped** (2026-11-20): it is a paid API, and every other grader is
+   free. It was a hosted decision model, reachable through TypeSafe, AIMLAPI,
+   Vercel's AI Gateway (`/v1/decisions`, $0.042 per million input tokens) or
+   OpenRouter; Laya stays as the decision model in the comparison.
 5. **A bounded loop, `MAX_REWRITES = 2`,** then the web. One rewrite was the
    first draft; two let a casual question be corrected twice while keeping
    latency predictable.
@@ -200,41 +200,48 @@ Every function is passed in, so the tests drive every branch with fakes.
 10. **One cut, two actions (good, weak).** The CRAG paper uses two thresholds
     and a third, "ambiguous" action (papers and web together); it is a
     candidate once phase 3's numbers are in.
-11. **Laya (G4) as the free local counterpart to Jev.** It runs as one more
+11. **Laya (G3) as the decision model, free and local.** It runs as one more
     service (a llama.cpp server): in `docker-compose.yml` for phase 1, and on
     the VM only if it is chosen. About 450 MB of model plus the server; the VM
     has about 2 GB available, so DP-style memory checks come first. How
     llama.cpp exposes Laya's yes/no probability is checked against Laya's and
     `rawwerks/rdm`'s docs before wiring it.
-12. **Gemma (G3) instead of Haiku as the LLM grader** (2026-11-19). All four
-    graders are now cheap (one hosted at about $0.00002, three local and free),
-    so the comparison is decision models against a small open LLM, with no
-    paid LLM in the grade. This is the first exception to "every LLM call via
+12. **Gemma (G2) instead of Haiku as the LLM grader** (2026-11-19). All
+    graders are free and local, so the comparison is a decision model, a small
+    open LLM and our own fine-tuned model, with no paid model in the grade. This is the first exception to "every LLM call via
     ChatAnthropic on Haiku 4.5": Gemma only grades; the rewrite, the answer and
     the eval judges stay on Haiku. Gemma 3 1B because the 4 GB VM can't hold a
     4B model next to the rest; its licence is Google's Gemma terms, not
     Apache-2.0.
+13. **Liquid d1 (G4) added** (2026-11-20) as a second open decision model,
+    next to Laya: d1-3B for the comparison, on the laptop (about 2 GB
+    quantized, a few seconds a grade on CPU). It doesn't fit on the 4 GB VM
+    next to the rest; if it wins, its smaller sibling d1-omni-600M (an early
+    research release) is measured the same way before anything is deployed,
+    and the VM keeps the best grader that fits. How to run it (Liquid's code
+    from the model card, or llama.cpp) is checked before wiring. Its licence,
+    LFM Open License v1.0, is free for us (it restricts companies above $10M
+    revenue).
 
 ## Acceptance criteria
 
 ### Phase 1: graders (scripts)
 
-**CR-1: G2's training data is clean.**
+**CR-1: G1's training data is clean.**
 - **When** `python scripts/make_grader_data.py` runs.
 - **Then** it writes the training and dev files, prints their sizes (about
   1,500 answerable and 300 unanswerable questions before filtering), how many
   were dropped as too close to an eval question, and shows no paper in both
   train and dev.
 
-**CR-2: G2 trains and beats its starting point on the dev set.**
+**CR-2: G1 trains and beats its starting point on the dev set.**
 - **When** `python scripts/train_grader.py` runs.
 - **Then** on the synthetic dev set, the fine-tuned model's accuracy is higher
   than the un-tuned reranker's (both at cut 0.5); it writes the ONNX model to
   `models/grader/` (gitignored).
 
 **CR-3: the four graders are compared on the eval questions.**
-- **When** `python scripts/compare_graders.py` runs (44 Jev calls, about
-  $0.001; G2, G3 and G4 run locally, free).
+- **When** `python scripts/compare_graders.py` runs (all four locally, free).
 - **Then** it prints, for each grader: accuracy, weak judged good, good judged weak, cost and median latency a question; and the
   grader chosen by the rule. The table is recorded in validation.md.
 
