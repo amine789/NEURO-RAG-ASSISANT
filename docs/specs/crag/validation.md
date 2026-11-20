@@ -4,17 +4,18 @@ How each acceptance criterion in [spec.md](spec.md) is checked, and the results.
 
 ## Checks
 
-- **Scripts** (phase 1): G3's data and training (about $0.50 once, for the
-  synthetic questions), then the grader comparison (free: all four graders run locally).
+- **Scripts** (phase 1): the grader comparison (free: G2–G4 run locally). G1's
+  data and training (about $0.50 once, for the synthetic questions) only if
+  G1 is built (choice 15).
 - **Unit** (`tests/test_crag.py`, free): the loop with fakes; no Qdrant, no API call.
 - **By hand:** the server with tracing on, and the Langfuse UI.
 - **Eval** (about $0.30): `python -m neuro_rag.eval.run --name crag --rerank --crag`.
 
 | Criterion | Kind | Check |
 |---|---|---|
-| CR-1 | script | `fetch_grader_papers.py` then `make_grader_data.py`: 40 new papers, none in the corpus; sizes, drops, no paper in both splits |
-| CR-2 | script | `python scripts/train_grader.py`: dev accuracy above the un-tuned reranker's |
-| CR-3 | script | `python scripts/compare_graders.py`: the four-grader table and the choice |
+| CR-1 | script, deferred (choice 15) | `fetch_grader_papers.py` then `make_grader_data.py`: 40 new papers, none in the corpus; sizes, drops, no paper in both splits |
+| CR-2 | script, deferred (choice 15) | `python scripts/train_grader.py`: dev accuracy above the un-tuned reranker's |
+| CR-3 | script | `python scripts/compare_graders.py`: the grader table (G2–G4, plus G1 if built) and the choice |
 | CR-4 | unit | `test_CR4_good_retrieval_answers_directly` |
 | CR-5 | unit | `test_CR5_weak_rewritten_original_answered` |
 | CR-6 | unit | `test_CR6_stops_after_max_rewrites_then_web` |
@@ -39,3 +40,4 @@ How each acceptance criterion in [spec.md](spec.md) is checked, and the results.
 | 2026-11-20 | v3, uncommitted | Jev dropped (paid) | three free graders: fine-tuned (G1), Gemma (G2), Laya (G3) |
 | 2026-11-20 | v3, uncommitted | Liquid d1 added as G4 (choice 13) | four free graders: fine-tuned, Gemma, Laya, Liquid d1 |
 | 2026-11-20 | v3, uncommitted | G1 trains on 40 new papers (choice 14) | no indexed or eval paper in its training data |
+| 2026-11-20 | v3, uncommitted | G1 deferred (choice 15) | G2–G4 compared first; G1, CR-1 and CR-2 only if CR-12 fails |

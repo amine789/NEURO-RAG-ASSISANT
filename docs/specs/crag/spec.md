@@ -2,8 +2,9 @@
 
 Roadmap row 9, the project's core (`advanded_rag_project.txt` steps 4, 5 and 7):
 retrieval is graded, corrected when weak, and the path taken is visible. The
-grade is the loop's one decision, so four free graders are compared for it,
-and the best is used (roadmap choice 8).
+grade is the loop's one decision, so three free off-the-shelf graders are
+compared for it, and the best is used (roadmap choice 8). A fourth, fine-tuned
+grader (G1) is deferred: built only if none of the three helps (choice 15).
 
 ## Goal
 
@@ -16,9 +17,10 @@ The API says which path was taken, and the trace shows every state.
 
 Built in three phases, each with numbers:
 
-1. **Graders compared** on the 50 eval questions: a fine-tuned grader of our
-   own, Gemma (a small open LLM), and two open decision models, Laya and
-   Liquid's d1. All four run locally and are free.
+1. **Graders compared** on the 50 eval questions: Gemma (a small open LLM)
+   and two open decision models, Laya and Liquid's d1. All three run locally,
+   are free and need no training. A fine-tuned grader of our own (G1) is
+   built only if none of them helps (choice 15).
 2. **The loop**, using phase 1's winner.
 3. **The proof:** the eval with the loop against the eval without it (row 8,
    correctness 0.78).
@@ -49,7 +51,7 @@ A grader takes the question and the 5 hits and returns a number in [0, 1]
 
 | Grader | How it decides | Cut | Cost a question | Tuned on our data? |
 |---|---|---|---|---|
-| **G1 fine-tuned** | our own cross-encoder: row 8's reranker (`ms-marco-MiniLM-L-6-v2`) fine-tuned on synthetic neuroscience pairs; the best of the 5 chunk probabilities | 0.5 | $0 | trained on synthetic data only |
+| **G1 fine-tuned** (deferred, choice 15) | our own cross-encoder: row 8's reranker (`ms-marco-MiniLM-L-6-v2`) fine-tuned on synthetic neuroscience pairs; the best of the 5 chunk probabilities | 0.5 | $0 | trained on synthetic data only |
 | **G2 Gemma** | the yes/no question "Do these passages contain the information needed to answer the question?" to Gemma 3 1B (instruction-tuned, quantized, about 0.8 GB), served locally by llama.cpp like Laya; the probability of yes is read from the answer token's log-probabilities | 0.5 | $0 (VM memory) | no: zero-shot |
 | **G3 Laya** | the same yes/no question to Laya, an open decision model (Apache-2.0, about 450 MB), served locally by llama.cpp (as in `rawwerks/rdm`); returns the probability of yes | 0.5 | $0 (VM memory) | no: zero-shot |
 | **G4 Liquid d1** | the same yes/no question to Liquid AI's open decision model d1-3B (LFM Open License v1.0; about 2 GB quantized), run locally with the code on its Hugging Face model card; returns the probability of yes in one forward pass | 0.5 | $0 (laptop; see choice 13) | no: zero-shot |
@@ -79,9 +81,9 @@ The 50 eval questions are the **test set**. Nothing is tuned on them:
 - A grader's mistakes are counted in two kinds: **weak judged good** (a bad
   answer goes out: costly) and **good judged weak** (an extra rewrite: cheap).
 
-### G1's training data
+### G1's training data (deferred, choice 15)
 
-G1 is trained on **papers the system has never seen**, so its test score
+Built only if G2–G4 fail (choice 15). G1 is trained on **papers the system has never seen**, so its test score
 measures how well it judges relevance on new papers, not how well it remembers
 ours. None of the 52 indexed papers (and none of the 14 excluded candidates) is
 used for training.
@@ -115,7 +117,7 @@ used for training.
 
 ### Choosing the grader
 
-All four are free, so the most accurate one is used, unless another is within
+All are free, so the most accurate one is used, unless another is within
 0.05 of it with fewer "weak judged good" mistakes; a remaining tie goes to the
 one using less VM memory.
 
@@ -173,8 +175,8 @@ Every function is passed in, so the tests drive every branch with fakes.
 | `src/neuro_rag/api/app.py` | `ask` calls `run_loop`; `AskResponse` gains `path` and `used_web` |
 | `src/neuro_rag/eval/run.py` | `--crag`; the run record gains `path` and `used_web` |
 | `src/neuro_rag/eval/report.py` | a `web used` column for `web_fallback` questions; rewrites per question |
-| `scripts/compare_graders.py` | phase 1: the four graders on the eval questions, the table |
-| `scripts/fetch_grader_papers.py` | G1's 40 training papers: search, download, catalog |
+| `scripts/compare_graders.py` | phase 1: the graders (G2–G4, plus G1 if built) on the eval questions, the table |
+| `scripts/fetch_grader_papers.py` | G1's 40 training papers: search, download, catalog (written, run only if G1 is built) |
 | `scripts/make_grader_data.py` | G1's synthetic data: parse, chunk, questions, pairs, split |
 | `scripts/train_grader.py` | G1's training, dev check and ONNX export |
 | `tests/test_crag.py` | the loop's criteria, with fakes |
@@ -246,12 +248,21 @@ Every function is passed in, so the tests drive every branch with fakes.
     the test honest and checks transfer to new papers. The alternative, training
     on the 23 papers no eval question uses, was simpler but stays inside the
     same corpus.
+15. **Off-the-shelf graders first, G1 deferred** (2026-11-20). G2, G3 and G4
+    need no data and no training; G1 needs 40 papers, about $0.50 of Haiku
+    questions, training and an ONNX export. So phase 1 compares G2–G4 only,
+    the loop is built with the winner, and G1 (with CR-1 and CR-2) is built
+    only if CR-12 fails, meaning no off-the-shelf grader improves on row 8.
+    G1 then joins the comparison in CR-3. `scripts/fetch_grader_papers.py`
+    is written and kept for that case, not run.
 
 ## Acceptance criteria
 
 ### Phase 1: graders (scripts)
 
-**CR-1: G1's training data comes from new papers only, and is clean.**
+CR-1 and CR-2 apply only if G1 is built (choice 15).
+
+**CR-1: G1's training data comes from new papers only, and is clean.** (deferred)
 - **When** `python scripts/fetch_grader_papers.py` then
   `python scripts/make_grader_data.py` run.
 - **Then** the catalog has 40 papers, none of whose PMCIDs is in
@@ -260,14 +271,15 @@ Every function is passed in, so the tests drive every branch with fakes.
   filtering) and how many were dropped as too close to an eval question, and
   shows no paper in both train and dev.
 
-**CR-2: G1 trains and beats its starting point on the dev set.**
+**CR-2: G1 trains and beats its starting point on the dev set.** (deferred)
 - **When** `python scripts/train_grader.py` runs.
 - **Then** on the synthetic dev set, the fine-tuned model's accuracy is higher
   than the un-tuned reranker's (both at cut 0.5); it writes the ONNX model to
   `models/grader/` (gitignored).
 
-**CR-3: the four graders are compared on the eval questions.**
-- **When** `python scripts/compare_graders.py` runs (all four locally, free).
+**CR-3: the graders are compared on the eval questions.**
+- **When** `python scripts/compare_graders.py` runs (G2, G3 and G4 locally,
+  free; G1 too if it is built).
 - **Then** it prints, for each grader: accuracy, weak judged good, good judged weak, cost and median latency a question; and the
   grader chosen by the rule. The table is recorded in validation.md.
 
