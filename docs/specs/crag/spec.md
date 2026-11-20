@@ -2,8 +2,8 @@
 
 Roadmap row 9, the project's core (`advanded_rag_project.txt` steps 4, 5 and 7):
 retrieval is graded, corrected when weak, and the path taken is visible. The
-grade is the loop's one decision, so three free off-the-shelf graders are
-compared for it, and the best is used (roadmap choice 8). A fourth, fine-tuned
+grade is the loop's one decision, so three free off-the-shelf graders (two
+Gemma sizes and Laya) are compared for it, and the best is used (roadmap choice 8). A fourth, fine-tuned
 grader (G1) is deferred: built only if none of the three helps (choice 15).
 
 ## Goal
@@ -17,8 +17,8 @@ The API says which path was taken, and the trace shows every state.
 
 Built in three phases, each with numbers:
 
-1. **Graders compared** on the 50 eval questions: Gemma (a small open LLM)
-   and two open decision models, Laya and Liquid's d1. All three run locally,
+1. **Graders compared** on the 50 eval questions: Gemma 3 at two sizes
+   (270M and 1B, small open LLMs) and Laya (an open decision model). All three run locally,
    are free and need no training. A fine-tuned grader of our own (G1) is
    built only if none of them helps (choice 15).
 2. **The loop**, using phase 1's winner.
@@ -52,9 +52,9 @@ A grader takes the question and the 5 hits and returns a number in [0, 1]
 | Grader | How it decides | Cut | Cost a question | Tuned on our data? |
 |---|---|---|---|---|
 | **G1 fine-tuned** (deferred, choice 15) | our own cross-encoder: row 8's reranker (`ms-marco-MiniLM-L-6-v2`) fine-tuned on synthetic neuroscience pairs; the best of the 5 chunk probabilities | 0.5 | $0 | trained on synthetic data only |
-| **G2 Gemma** | the yes/no question "Do these passages contain the information needed to answer the question?" to Gemma 3 1B (instruction-tuned, quantized, about 0.8 GB), served locally by llama.cpp like Laya; the probability of yes is read from the answer token's log-probabilities | 0.5 | $0 (VM memory) | no: zero-shot |
+| **G2a Gemma 270M** | the yes/no question "Do these passages contain the information needed to answer the question?" to Gemma 3 270M (instruction-tuned, quantized, about 250 MB), served locally by llama.cpp like Laya; the probability of yes is read from the answer token's log-probabilities | 0.5 | $0 (VM memory) | no: zero-shot |
+| **G2b Gemma 1B** | the same, with Gemma 3 1B (instruction-tuned, quantized, about 0.8 GB), same server and prompt, a different model file | 0.5 | $0 (VM memory) | no: zero-shot |
 | **G3 Laya** | the same yes/no question to Laya, an open decision model (Apache-2.0, about 450 MB), served locally by llama.cpp (as in `rawwerks/rdm`); returns the probability of yes | 0.5 | $0 (VM memory) | no: zero-shot |
-| **G4 Liquid d1** | the same yes/no question to Liquid AI's open decision model d1-3B (LFM Open License v1.0; about 2 GB quantized), run locally with the code on its Hugging Face model card; returns the probability of yes in one forward pass | 0.5 | $0 (laptop; see choice 13) | no: zero-shot |
 
 ### Labels: what "good retrieval" means on the eval
 
@@ -74,7 +74,7 @@ retrieval); the same labels are used for every grader, so the comparison is fair
 
 The 50 eval questions are the **test set**. Nothing is tuned on them:
 
-- **G2, G3, G4:** zero-shot; the question wording is written now (above) and
+- **G2a, G2b, G3:** zero-shot; the question wording is written now (above) and
   not changed after seeing results; the cut is fixed (0.5, yes/no), not fitted.
 - **G1:** trained and checked only on synthetic data (below); the eval
   questions are used once, for the final number.
@@ -83,7 +83,7 @@ The 50 eval questions are the **test set**. Nothing is tuned on them:
 
 ### G1's training data (deferred, choice 15)
 
-Built only if G2–G4 fail (choice 15). G1 is trained on **papers the system has never seen**, so its test score
+Built only if G2a, G2b and G3 fail (choice 15). G1 is trained on **papers the system has never seen**, so its test score
 measures how well it judges relevance on new papers, not how well it remembers
 ours. None of the 52 indexed papers (and none of the 14 excluded candidates) is
 used for training.
@@ -167,7 +167,7 @@ Every function is passed in, so the tests drive every branch with fakes.
 | File | Change |
 |---|---|
 | `src/neuro_rag/crag/__init__.py` | empty |
-| `src/neuro_rag/crag/graders.py` | `finetuned_grader`, `gemma_grader`, `laya_grader`, `liquid_grader`: each `(question, hits) -> float` |
+| `src/neuro_rag/crag/graders.py` | `finetuned_grader` (only if G1 is built), `gemma_grader` (model file as a parameter: 270M or 1B), `laya_grader`: each `(question, hits) -> float` |
 | `src/neuro_rag/crag/loop.py` | `CragResult(answer, path, used_web)`, `run_loop`, `rewrite`, `web_hits` |
 | `src/neuro_rag/config.py` | `GRADE_CUT`, `MAX_REWRITES`, `WEB_DOMAINS`, `GRADER` |
 | `src/neuro_rag/retrieval/search.py` | `Hit` gains `url: str = ""` (default keeps every caller and test unchanged) |
@@ -175,7 +175,7 @@ Every function is passed in, so the tests drive every branch with fakes.
 | `src/neuro_rag/api/app.py` | `ask` calls `run_loop`; `AskResponse` gains `path` and `used_web` |
 | `src/neuro_rag/eval/run.py` | `--crag`; the run record gains `path` and `used_web` |
 | `src/neuro_rag/eval/report.py` | a `web used` column for `web_fallback` questions; rewrites per question |
-| `scripts/compare_graders.py` | phase 1: the graders (G2–G4, plus G1 if built) on the eval questions, the table |
+| `scripts/compare_graders.py` | phase 1: the graders (G2a, G2b, G3, plus G1 if built) on the eval questions, the table |
 | `scripts/fetch_grader_papers.py` | G1's 40 training papers: search, download, catalog (written, run only if G1 is built) |
 | `scripts/make_grader_data.py` | G1's synthetic data: parse, chunk, questions, pairs, split |
 | `scripts/train_grader.py` | G1's training, dev check and ONNX export |
@@ -184,12 +184,12 @@ Every function is passed in, so the tests drive every branch with fakes.
 
 ## Choices, accepted 2026-11-19
 
-1. **Four free graders compared, the best one used.** G1 fine-tuned, G2
-   Gemma, G3 Laya, G4 Liquid d1, as above, with the rule in "Choosing the grader".
+1. **Free graders compared, the best one used.** G2a Gemma 270M, G2b
+   Gemma 1B, G3 Laya (and G1 fine-tuned only if built, choice 15), as above, with the rule in "Choosing the grader".
    A threshold on row 8's raw reranker score was dropped (2026-11-19): its cut
    would have to be fitted, and a cut fitted on one set of questions doesn't
    transfer to questions written differently.
-2. **Nothing fitted on the eval:** G2, G3 and G4 zero-shot with fixed wording
+2. **Nothing fitted on the eval:** G2a, G2b and G3 zero-shot with fixed wording
    and a fixed cut; G1 trained on synthetic data only, so the 50 eval questions stay a
    test set.
 3. **G1 is row 8's reranker fine-tuned,** not a new model: the same size (about
@@ -232,7 +232,8 @@ Every function is passed in, so the tests drive every branch with fakes.
     the eval judges stay on Haiku. Gemma 3 1B because the 4 GB VM can't hold a
     4B model next to the rest; its licence is Google's Gemma terms, not
     Apache-2.0.
-13. **Liquid d1 (G4) added** (2026-11-20) as a second open decision model,
+13. **Liquid d1 (G4): added, then removed the same day** (2026-11-20; see
+    choice 16). As first added: a second open decision model,
     next to Laya: d1-3B for the comparison, on the laptop (about 2 GB
     quantized, a few seconds a grade on CPU). It doesn't fit on the 4 GB VM
     next to the rest; if it wins, its smaller sibling d1-omni-600M (an early
@@ -248,13 +249,19 @@ Every function is passed in, so the tests drive every branch with fakes.
     the test honest and checks transfer to new papers. The alternative, training
     on the 23 papers no eval question uses, was simpler but stays inside the
     same corpus.
-15. **Off-the-shelf graders first, G1 deferred** (2026-11-20). G2, G3 and G4
-    need no data and no training; G1 needs 40 papers, about $0.50 of Haiku
-    questions, training and an ONNX export. So phase 1 compares G2–G4 only,
+15. **Off-the-shelf graders first, G1 deferred** (2026-11-20). The
+    off-the-shelf graders need no data and no training; G1 needs 40 papers, about $0.50 of Haiku
+    questions, training and an ONNX export. So phase 1 compares those only,
     the loop is built with the winner, and G1 (with CR-1 and CR-2) is built
     only if CR-12 fails, meaning no off-the-shelf grader improves on row 8.
     G1 then joins the comparison in CR-3. `scripts/fetch_grader_papers.py`
     is written and kept for that case, not run.
+16. **Liquid d1 removed; Gemma 3 270M added next to 1B** (2026-11-20). d1-3B
+    (about 2 GB) doesn't fit on the VM and needs its own runtime, so it could
+    win the comparison and still not ship. Gemma 3 270M (about 250 MB) is the
+    cheapest option that fits; it runs on the same llama.cpp server as the 1B
+    with only a different model file, so both are measured in one run. Only
+    the winner is deployed.
 
 ## Acceptance criteria
 
@@ -278,8 +285,8 @@ CR-1 and CR-2 apply only if G1 is built (choice 15).
   `models/grader/` (gitignored).
 
 **CR-3: the graders are compared on the eval questions.**
-- **When** `python scripts/compare_graders.py` runs (G2, G3 and G4 locally,
-  free; G1 too if it is built).
+- **When** `python scripts/compare_graders.py` runs (G2a, G2b and G3
+  locally, free; G1 too if it is built).
 - **Then** it prints, for each grader: accuracy, weak judged good, good judged weak, cost and median latency a question; and the
   grader chosen by the rule. The table is recorded in validation.md.
 
