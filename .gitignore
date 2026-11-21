@@ -15,3 +15,5 @@ venv/
 
 # Local planning notes
 advanded_rag_project.txt
+docs/architecture-decisions.pdf
+docs/src/make_architecture_decisions.py
