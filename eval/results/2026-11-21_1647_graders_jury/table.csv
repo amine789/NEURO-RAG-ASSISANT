@@ -1,0 +1,5 @@
+grader,n,accuracy,weak_judged_good,good_judged_weak,errors,median_s,ram_mb,cost
+gemma1b,50,0.74,8,5,0,1.39,800,$0
+laya,50,0.76,10,2,0,4.49,450,$0
+jev,50,0.84,5,3,0,0.35,0,~$0.00004
+haiku,50,0.84,3,5,0,0.74,0,~$0.0011

@@ -70,6 +70,31 @@ question:
 This is a proxy (a wrong answer can come from the generation, not the
 retrieval); the same labels are used for every grader, so the comparison is fair.
 
+**Replaced by jury labels (choice 18).** The proxy above was used for CR-3's
+first three runs. Its limits showed in them: it labels the answer, not the
+chunks; every label traces back to one LLM (Haiku judged the answers), and Haiku
+is itself a candidate grader; and all three graders "disagreed" with it on the
+same questions (q12, q33, q36), which points at the labels. From now on the
+label is **retrieval sufficiency**, decided by a jury:
+
+- **Judges:** three frontier models from three providers, none from Anthropic,
+  through OpenRouter: `openai/gpt-5.6-sol`, `~google/gemini-pro-latest` (an
+  alias; the model it resolves to is recorded with every vote), `x-ai/grok-4.7`.
+- **What each judge sees:** the question, the 5 chunks row 8 retrieved for it
+  (search re-run; identical to row 8's on all 44 labelled questions), and, for
+  `answer_from_corpus` and `correct_premise` questions only, the reference
+  answer. The other kinds' references describe the expected behaviour ("not
+  covered by the corpus"), which would give the answer away, so they are left out.
+- **What it decides:** good if the passages contain the information needed to
+  answer the question well, weak otherwise. For a false-premise question, passages
+  that show the premise is wrong count as good: the system should answer by
+  correcting it. Each judge returns JSON `{"label": "good" | "weak", "reason": "..."}`.
+- **Label:** the majority of the three; whether they were unanimous is kept.
+  All 50 English questions get a label, borderline ones included.
+- **Written once, before G1 exists,** to `eval/ground_truth/labels.jsonl`, with
+  every vote in `eval/ground_truth/votes.jsonl`. No judge sees a grader's output;
+  `compare_graders.py` only counts matches. About $1 for 150 calls.
+
 ### Keeping the test set clean
 
 The 50 eval questions are the **test set**. Nothing is tuned on them:
@@ -120,6 +145,40 @@ used for training.
 All are free, so the most accurate one is used, unless another is within
 0.05 of it with fewer "weak judged good" mistakes; a remaining tie goes to the
 one using less VM memory.
+
+### Result (CR-3, 2026-11-21): Jev
+
+How the comparison ran, in order (every run in validation.md):
+
+1. **Runs 1–3, row 8 proxy labels, 44 questions:** Gemma 3 1B 0.795, Laya 0.818,
+   Haiku 0.841. The labels' limits showed (see "Labels"), so they were replaced
+   by the jury (choice 18) and every grader was re-run.
+2. **Run 4, jury labels, 50 questions (30 good, 20 weak), one run each:**
+
+| Grader | Accuracy | Weak judged good | Good judged weak | Median s | Cost a grade |
+|---|---|---|---|---|---|
+| Gemma 3 1B (local) | 0.74 | 8 | 5 | 1.39 (cached; 7.1 measured cold) | $0 |
+| Laya (local) | 0.76 | 10 | 2 | 4.49 | $0 |
+| Jev (OpenRouter) | 0.84 | 5 | 3 | 0.35 | ~$0.00004 |
+| Haiku 4.5 | 0.84 | 3 | 5 | 0.74 | ~$0.0011 |
+
+   Always saying "good" scores 0.60. The local graders are out: less accurate
+   and too slow for the 6 s target. Jev alone, the same day, then scored 0.88
+   (4, 2): Jev is not deterministic, its scores move by 0.01 to 0.04 and
+   questions at the cut flip, so one run can't separate it from Haiku.
+3. **Run 5, Jev and Haiku, 3 runs each (`--runs 3`), mean ± standard deviation:**
+
+| Grader | Accuracy | Weak judged good | Good judged weak | Median s | Cost a grade |
+|---|---|---|---|---|---|
+| Jev | 0.860 ± 0.000 | 4.0 ± 0 | 3.0 ± 0 | 0.33 | ~$0.00004 |
+| Haiku 4.5 | 0.840 ± 0.000 | 3.0 ± 0 | 5.0 ± 0 | 0.68 | ~$0.0011 |
+
+   Over all five Jev runs: accuracy 0.86 ± 0.014 (0.84 to 0.88), weak judged
+   good 4 to 5. Haiku: 0.84 / 3 / 5 in all four runs.
+4. **The rule picks Haiku** (within 0.05 of each other, then fewer weak judged
+   good: 3 vs 4), by one question, which is inside Jev's own run-to-run range.
+   **Jev is chosen as a recorded override (choice 20):** it is better on every
+   other measure.
 
 ## Phase 2: the loop
 
@@ -267,6 +326,30 @@ Every function is passed in, so the tests drive every branch with fakes.
     I bake sourdough bread?". It says yes regardless of relevance, so it can't
     grade zero-shot. The prompt was not changed to rescue it. Gemma 3 1B
     (Q4_K_M, about 0.8 GB) takes its place in the same llama.cpp service.
+18. **Ground truth from a three-model jury, not the row 8 proxy** (2026-11-21),
+    as set out under "Labels". Decided after CR-3's first three runs showed the
+    proxy's limits, and before G1 is built, so the labels can't be tuned towards
+    any grader still to come; every grader is re-run on them. Frontier models,
+    not OpenRouter's free ones: this is the reference everything else is
+    measured against, and it costs about $1. Haiku was a grader candidate, so no
+    Anthropic model judges.
+19. **Jev re-added, through OpenRouter** (2026-11-21). Dropped on 2026-11-20 as
+    paid, but OpenRouter serves it at `/api/v1/systemone` (the same TypeSafe API
+    as Laya's llama.cpp server) for $0.042 per million input tokens, about
+    $0.00004 a grade: close enough to free, with no VM memory and no local CPU
+    time. Pinned as `typesafe/jev-1.14`. OpenJev, the open-weights version, can't
+    run here (19 GB at Q4 against the laptop's 8 GB Docker VM).
+20. **Jev chosen as the grader, overriding the rule's pick of Haiku**
+    (2026-11-21; numbers under "Result"). The rule, written before any result,
+    puts "weak judged good" first among close graders because that mistake
+    makes Claude answer from chunks that can't support the answer; on it Haiku
+    leads Jev by one question (3 vs 4 of 20 weak), which is within Jev's
+    run-to-run range (4 to 5). Jev is better on everything else: accuracy 0.86
+    vs 0.84, good judged weak 3 vs 5 (needless rewrites), median latency 0.33 vs
+    0.68 s, and about 25 times cheaper ($0.00004 vs $0.0011 a grade). The
+    override is a judgement call, made after seeing the results and recorded as
+    such; the loop's eval (CR-12) is the final check. If G1 is built, it is
+    compared against Jev.
 
 ## Acceptance criteria
 
@@ -292,7 +375,7 @@ CR-1 and CR-2 apply only if G1 is built (choice 15).
 **CR-3: the graders are compared on the eval questions.**
 - **When** `python scripts/compare_graders.py` runs (G2b and G3
   locally, free; G1 too if it is built).
-- **Then** it prints, for each grader: accuracy, weak judged good, good judged weak, cost and median latency a question; and the
+- **Then**, scored against the jury labels (choice 18), it prints, for each grader: accuracy, weak judged good, good judged weak, cost and median latency a question; and the
   grader chosen by the rule. The table is recorded in validation.md.
 
 ### Phase 2: the loop (unit, fakes, no API call)

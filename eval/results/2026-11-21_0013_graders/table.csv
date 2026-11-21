@@ -1,0 +1,2 @@
+grader,n,accuracy,weak_judged_good,good_judged_weak,errors,median_s,ram_mb
+gemma1b,44,0.795,5,4,0,7.13,800

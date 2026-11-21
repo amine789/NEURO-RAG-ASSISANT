@@ -5,6 +5,7 @@ probability that the hits contain the information needed (see docs/specs/crag/sp
 phase 1). Compared locally by scripts/compare_graders.py; only the winner ships.
 """
 import math                                   # math.exp: logprob -> probability
+import os                                     # OPENROUTER_API_KEY for jev_grader
 
 import requests                               # HTTP calls to the local llama.cpp server
 
@@ -145,5 +146,49 @@ def laya_grader(question: str, hits: list[Hit], url: str = LAYA_URL) -> float:
         "questions": {"good": {"type": "noul", "instructions": LAYA_QUESTION}},
     }
     response = requests.post(f"{url}/v1/systemone", json=body, timeout=TIMEOUT)
+    response.raise_for_status()
+    return response.json()["answers"]["good"]["noul"]
+
+
+OPENROUTER_SYSTEMONE = "https://openrouter.ai/api/v1/systemone"   # OpenRouter's decision-model endpoint
+JEV_MODEL = "typesafe/jev-1.14"    # pinned, not ~typesafe/jev-latest: the version graded is the version shipped
+
+
+def jev_grader(question: str, hits: list[Hit], model: str = JEV_MODEL) -> float:
+    """Jev (TypeSafe's hosted decision model) through OpenRouter; returns P(yes).
+
+    Same idea and same request as laya_grader: Jev is a decision model, answering typed
+    questions about a "state" with probabilities and no generated text. OpenRouter
+    serves decision models at /api/v1/systemone, the same TypeSafe-compatible API
+    llama.cpp serves Laya with, plus a "model" field and an API key.
+
+    Steps:
+      1. The state is "Question: <question>" then "Passages:" and the hits' texts
+         numbered [1]..[5], exactly as in laya_grader.
+      2. One POST to OPENROUTER_SYSTEMONE with the header
+         "Authorization: Bearer <OPENROUTER_API_KEY>" (from .env, never printed) and
+         {"model": "typesafe/jev-1.14", "state": ...,
+          "questions": {"good": {"type": "noul", "instructions": LAYA_QUESTION}}}.
+      3. The answer is {"answers": {"good": {"type": "noul", "noul": 0.87}}, ...};
+         "noul" is P(yes), returned as is.
+
+    Paid but tiny: $0.042 per million input tokens, so about $0.00004 for a grade of
+    about 850 tokens (the Haiku grader costs about 25 times more).
+
+    Args: question; hits (only .text is used); model, the OpenRouter model id.
+    Returns: P(yes) in [0, 1]; compare with CUT.
+    Raises: KeyError if OPENROUTER_API_KEY is not set; requests.RequestException
+    (network, timeout after TIMEOUT s, non-200 such as 402 when the account has no
+    credit); not caught here: the loop catches it (spec CR-8), compare_graders.py
+    counts it.
+    """
+    passages = "\n\n".join(f"[{i}] {hit.text}" for i, hit in enumerate(hits, start=1))
+    body = {
+        "model": model,
+        "state": f"Question: {question}\n\nPassages:\n{passages}",
+        "questions": {"good": {"type": "noul", "instructions": LAYA_QUESTION}},
+    }
+    headers = {"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"}
+    response = requests.post(OPENROUTER_SYSTEMONE, json=body, headers=headers, timeout=TIMEOUT)
     response.raise_for_status()
     return response.json()["answers"]["good"]["noul"]

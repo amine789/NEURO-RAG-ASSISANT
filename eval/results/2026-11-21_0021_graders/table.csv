@@ -1,0 +1,2 @@
+grader,n,accuracy,weak_judged_good,good_judged_weak,errors,median_s,ram_mb,cost
+haiku,44,0.841,1,6,0,0.48,0,~$0.0011

@@ -2,7 +2,8 @@
 
 For each eval question: row 8's search (dense top 20, reranked, top 5) is run again,
 every grader scores those 5 hits, and the decision (good if score >= CUT) is compared
-with the question's label taken from row 8's eval run (spec, "Labels"). Prints one
+with the question's label: by default the jury's (eval/ground_truth/labels.jsonl, spec
+choice 18), or with --labels proxy the older proxy from row 8's eval run. Prints one
 table row per grader and the grader chosen by the spec's rule; writes the per-question
 scores and the table to eval/results/<timestamp>_graders/. Free: everything runs
 locally. Needs Qdrant and each grader's server running:
@@ -11,9 +12,12 @@ locally. Needs Qdrant and each grader's server running:
     docker compose --profile graders up -d gemma1b laya
     python scripts/compare_graders.py                    # every grader
     python scripts/compare_graders.py --graders haiku    # only some (names in GRADERS)
+    python scripts/compare_graders.py --labels proxy     # the row 8 proxy labels (runs 1-3)
+    python scripts/compare_graders.py --graders jev haiku --runs 3   # repeat, report the average
 
 The Haiku grader is paid (about $0.0011 a grade, about $0.05 for the 44 questions)
-and needs ANTHROPIC_API_KEY in .env.
+and needs ANTHROPIC_API_KEY in .env. Jev (through OpenRouter) costs about $0.00004 a
+grade and needs OPENROUTER_API_KEY.
 """
 import argparse
 import csv
@@ -29,12 +33,13 @@ from langchain_anthropic import ChatAnthropic
 from qdrant_client import QdrantClient
 
 from neuro_rag.config import EMBED_MODEL, LLM_MODEL, QDRANT_URL, RERANK_MODEL, RESULTS_DIR, SPARSE_MODEL
-from neuro_rag.crag.graders import CUT, gemma_grader, haiku_grader, laya_grader
+from neuro_rag.crag.graders import CUT, gemma_grader, haiku_grader, jev_grader, laya_grader
 from neuro_rag.retrieval.search import search
 
 # row 8's eval run: the labels come from its verdicts, and its chunk_ids are checked
 # against today's search so we know the grader sees the same hits row 8 answered from
 ROW8_RUN = RESULTS_DIR / "2026-11-18_2157_rerank" / "runs.jsonl"
+JURY_LABELS = Path(__file__).parents[1] / "eval" / "ground_truth" / "labels.jsonl"   # scripts/label_ground_truth.py
 
 # Haiku for grading: a few output tokens ("Yes"/"No"), temperature 0. Building it makes
 # no API call; the key is read from .env when the first grade is sent.
@@ -45,6 +50,7 @@ HAIKU = ChatAnthropic(model=LLM_MODEL, max_tokens=5, temperature=0)
 GRADERS = {
     "gemma1b": (gemma_grader, 800, "$0"),
     "laya": (laya_grader, 450, "$0"),
+    "jev": (jev_grader, 0, "~$0.00004"),
     "haiku": (lambda question, hits: haiku_grader(question, hits, HAIKU), 0, "~$0.0011"),
 }
 
@@ -52,8 +58,23 @@ CLOSE = 0.05    # spec rule: another grader within this accuracy of the best, wi
                 # "weak judged good" mistakes, is preferred
 
 
+def jury_labels(path: Path = JURY_LABELS) -> dict[str, str | None]:
+    """The jury's label for each question (spec choice 18), from labels.jsonl.
+
+    Each line is {"id": "q12", "label": "good", "unanimous": true, "votes": {...}};
+    the label is the majority of three frontier models judging whether row 8's 5 chunks
+    contain what is needed to answer. None only if the judges failed (no majority).
+
+    Returns: e.g. {"q01": "good", "q12": "good", "q54": "weak", ...}, 50 entries
+    (30 good, 20 weak on 2026-11-21).
+    """
+    with open(path, encoding="utf-8") as f:
+        return {row["id"]: row["label"] for row in map(json.loads, f)}
+
+
 def label(run: dict) -> str | None:
-    """The row 8 label of one eval question: "good", "weak", or None (left out).
+    """The row 8 proxy label of one eval question: "good", "weak", or None (left out).
+    Used by CR-3's runs 1-3; replaced by jury_labels() (choice 18), kept for --labels proxy.
 
     From the spec's "Labels" section, using the question's row in ROW8_RUN:
       - "good": expected_behavior is answer_from_corpus or correct_premise, and the
@@ -88,10 +109,11 @@ def load_runs(path: Path = ROW8_RUN) -> list[dict]:
         return [json.loads(line) for line in f]
 
 
-def grade_all(runs: list[dict], search_fn, names: list[str]) -> list[dict]:
+def grade_all(runs: list[dict], search_fn, names: list[str], labels: dict[str, str | None]) -> list[dict]:
     """Runs search once per labelled question, then the graders in `names` on those hits.
 
-    For each question with a label (left-out ones are skipped):
+    `labels` maps a question id to "good", "weak" or None (jury_labels() or the proxy).
+    For each question with a label (None ones are skipped):
       1. search_fn(question) gives the 5 hits; whether their chunk_ids equal row 8's
          is recorded as same_hits (should be true: search is deterministic and the
          index hasn't changed; if not, that question's label may not fit its hits);
@@ -106,7 +128,7 @@ def grade_all(runs: list[dict], search_fn, names: list[str]) -> list[dict]:
     """
     rows = []
     for run in runs:
-        gold = label(run)
+        gold = labels.get(run["id"])
         if gold is None:
             continue
         hits = search_fn(run["question"])
@@ -163,6 +185,40 @@ def summarise(rows: list[dict], names: list[str]) -> list[dict]:
     return table
 
 
+def average(tables: list[list[dict]]) -> list[dict]:
+    """Averages the per-run tables of repeated runs (--runs N), grader by grader.
+
+    Graders such as Jev are not deterministic: scores move by a few hundredths between
+    runs, and a question sitting at the cut can flip, so one run's accuracy is noisy by
+    one or two questions. For each grader: accuracy, weak_judged_good, good_judged_weak,
+    errors and median_s become their mean over the runs; accuracy, weak_judged_good and
+    good_judged_weak also get their standard deviation (*_std: statistics.stdev, the
+    sample standard deviation, so N - 1 in the denominator; needs at least 2 runs);
+    accuracy_min / accuracy_max show the range; n, ram_mb and cost are the same in every
+    run and are kept.
+
+    Returns: one dict per grader, e.g. {"grader": "jev", "n": 50, "runs": 3,
+    "accuracy": 0.86, "accuracy_std": 0.02, "accuracy_min": 0.84, "accuracy_max": 0.88,
+    "weak_judged_good": 4.333, "weak_judged_good_std": 0.577, ...}.
+    """
+    averaged = []
+    for rows in zip(*tables):                     # the same grader's row from each run
+        first = rows[0]
+        mean = lambda key: round(statistics.mean(r[key] for r in rows), 3)
+        std = lambda key: round(statistics.stdev(r[key] for r in rows), 3)
+        averaged.append({
+            "grader": first["grader"], "n": first["n"], "runs": len(rows),
+            "accuracy": mean("accuracy"), "accuracy_std": std("accuracy"),
+            "accuracy_min": min(r["accuracy"] for r in rows), "accuracy_max": max(r["accuracy"] for r in rows),
+            "weak_judged_good": mean("weak_judged_good"), "weak_judged_good_std": std("weak_judged_good"),
+            "good_judged_weak": mean("good_judged_weak"), "good_judged_weak_std": std("good_judged_weak"),
+            "errors": mean("errors"),
+            "median_s": round(statistics.mean(r["median_s"] for r in rows if r["median_s"] is not None), 2),
+            "ram_mb": first["ram_mb"], "cost": first["cost"],
+        })
+    return averaged
+
+
 def choose(table: list[dict]) -> str:
     """The spec's rule ("Choosing the grader"): the most accurate grader, unless another
     is within CLOSE (0.05) of it with fewer weak_judged_good mistakes; a remaining tie
@@ -182,13 +238,22 @@ def main():
 
     The search is built exactly as in api/app.py's build_pipeline (dense, top 20
     reranked to 5), without the LLM: no Claude call, nothing paid.
-    --graders picks which graders run (default: all in GRADERS).
-    Writes eval/results/<YYYY-MM-DD_HHMM>_graders/scores.csv (one row per question and
-    grader) and table.csv (one row per grader).
+    --graders picks which graders run (default: all in GRADERS); --labels picks the
+    ground truth (default: the jury's); --runs N repeats the grading N times (search
+    is deterministic, the graders may not be) and the table is the average, with each
+    grader's accuracy range across the runs.
+    Writes eval/results/<YYYY-MM-DD_HHMM>_graders_<labels>/scores.csv (one row per run,
+    question and grader), runs.csv (one table row per run and grader) and table.csv
+    (one row per grader, averaged when --runs > 1).
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--graders", nargs="+", choices=list(GRADERS), default=list(GRADERS))
-    names = parser.parse_args().graders
+    parser.add_argument("--labels", choices=["jury", "proxy"], default="jury")
+    parser.add_argument("--runs", type=int, default=1)   # 2 or more for a standard deviation
+    args = parser.parse_args()
+    names = args.graders
+    runs = load_runs()
+    labels = jury_labels() if args.labels == "jury" else {r["id"]: label(r) for r in runs}
 
     client = QdrantClient(url=QDRANT_URL)
     embed = TextEmbedding(EMBED_MODEL).embed
@@ -198,12 +263,18 @@ def main():
     def search_fn(question):
         return search(question, client, embed, sparse_embed, rerank=rerank)
 
-    rows = grade_all(load_runs(), search_fn, names)
-    table = summarise(rows, names)
+    rows, tables = [], []
+    for n in range(1, args.runs + 1):
+        if args.runs > 1:
+            print(f"--- run {n} of {args.runs}")
+        run_rows = [{"run": n, **r} for r in grade_all(runs, search_fn, names, labels)]
+        rows += run_rows
+        tables.append([{"run": n, **t} for t in summarise(run_rows, names)])
+    table = average(tables) if args.runs > 1 else [{k: v for k, v in t.items() if k != "run"} for t in tables[0]]
 
-    out = RESULTS_DIR / f"{datetime.now():%Y-%m-%d_%H%M}_graders"
+    out = RESULTS_DIR / f"{datetime.now():%Y-%m-%d_%H%M}_graders_{args.labels}"
     out.mkdir(parents=True)
-    for name, data in (("scores.csv", rows), ("table.csv", table)):
+    for name, data in (("scores.csv", rows), ("runs.csv", [t for ts in tables for t in ts]), ("table.csv", table)):
         with open(out / name, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=list(data[0]))
             writer.writeheader()
@@ -212,6 +283,21 @@ def main():
     questions = len({r["id"] for r in rows})
     differ = len({r["id"] for r in rows if not r["same_hits"]})
     print(f"\n{questions} labelled questions; hits differ from row 8's on {differ}")
+    if args.runs > 1:
+        for ts in tables:
+            print("  run " + str(ts[0]["run"]) + ": " + ", ".join(f"{t['grader']} {t['accuracy']}" for t in ts))
+        print(f"mean ± standard deviation over {args.runs} runs:")
+        print(f"{'grader':<10} {'n':>3} {'accuracy':>14} {'weak→good':>12} {'good→weak':>12} {'median s':>8}  "
+              f"cost a grade   accuracy range")
+        for row in table:
+            print(f"{row['grader']:<10} {row['n']:>3} "
+                  f"{row['accuracy']:>6.3f} ± {row['accuracy_std']:<5.3f} "
+                  f"{row['weak_judged_good']:>4.1f} ± {row['weak_judged_good_std']:<5.2f} "
+                  f"{row['good_judged_weak']:>4.1f} ± {row['good_judged_weak_std']:<5.2f} "
+                  f"{row['median_s']:>8}  {row['cost']:<13} {row['accuracy_min']} to {row['accuracy_max']}")
+        print(f"chosen (on the means): {choose(table)}")
+        print(f"wrote {out}")
+        return
     print(f"{'grader':<10} {'n':>3} {'accuracy':>8} {'weak→good':>9} {'good→weak':>9} {'errors':>6} "
           f"{'median s':>8} {'RAM MB':>6}  cost a grade")
     for row in table:
