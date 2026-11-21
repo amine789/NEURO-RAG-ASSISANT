@@ -22,6 +22,8 @@ QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
 GROBID_URL = os.environ.get("GROBID_URL", "http://localhost:8070")
 # row 9, grader G2: llama.cpp server for Gemma 3 1B (docker-compose service gemma1b)
 GEMMA_URL = os.environ.get("GEMMA_URL", "http://localhost:8081")
+# row 9, grader G3: llama.cpp server for Laya (docker-compose service laya)
+LAYA_URL = os.environ.get("LAYA_URL", "http://localhost:8082")
 
 LLM_MODEL = "claude-haiku-4-5"
 PRICE_IN = 1.00

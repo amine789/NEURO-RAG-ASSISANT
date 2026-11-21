@@ -29,6 +29,25 @@ services:
     volumes:
       - llm_models:/models
 
+  # Row 9, grader G3: Laya (open decision model, Apache-2.0, Q8_0) behind the same
+  # llama.cpp server image. Decision models don't generate text: they answer typed
+  # questions at /v1/systemone (llama.cpp PR 29818, in this build), e.g. a "noul"
+  # question returns the probability of yes. Comparison only:
+  #   docker compose --profile graders up -d laya
+  laya:
+    image: ghcr.io/ggml-org/llama.cpp:server-b12098
+    profiles: ["graders"]
+    # -c/-b/-ub 4096: an encoder takes its whole input in one batch; the default 512
+    # rejected our 5 chunks (about 850 tokens) with a 500 error
+    command: ["-hf", "ggml-org/Laya-GGUF:Q8_0", "--host", "0.0.0.0", "--port", "8080",
+              "-c", "4096", "-b", "4096", "-ub", "4096"]
+    environment:
+      LLAMA_CACHE: /models
+    ports:
+      - "8082:8080"
+    volumes:
+      - llm_models:/models
+
 volumes:
   qdrant_storage:
   llm_models:

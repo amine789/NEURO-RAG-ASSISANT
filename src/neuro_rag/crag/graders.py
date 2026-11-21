@@ -8,7 +8,7 @@ import math                                   # math.exp: logprob -> probability
 
 import requests                               # HTTP calls to the local llama.cpp server
 
-from neuro_rag.config import GEMMA_URL        # http://localhost:8081 locally; an env var so k8s can override it
+from neuro_rag.config import GEMMA_URL, LAYA_URL   # localhost:8081 / :8082 locally; env vars so k8s can override them
 from neuro_rag.retrieval.search import Hit    # what search() returns: .text is the chunk
 
 CUT = 0.5            # good if P(yes) >= CUT; fixed, never fitted on the eval (spec choice 2)
@@ -77,3 +77,73 @@ def gemma_grader(question: str, hits: list[Hit], url: str = GEMMA_URL) -> float:
     if yes + no == 0:
         return 0.0
     return yes / (yes + no)
+
+
+def haiku_grader(question: str, hits: list[Hit], llm) -> float:
+    """Haiku as grader: the same PROMPT as gemma_grader, sent to Claude; returns 1.0 or 0.0.
+
+    Steps:
+      1. The hits are numbered and put into PROMPT exactly as in gemma_grader, so the
+         two graders see the same text.
+      2. llm.invoke(prompt) sends it to Claude Haiku 4.5 through LangChain's
+         ChatAnthropic (the project's rule for LLM calls). `llm` is built by the caller,
+         e.g. ChatAnthropic(model="claude-haiku-4-5", max_tokens=5, temperature=0):
+         a few output tokens are enough for "Yes" or "No".
+      3. The reply's text is stripped of spaces and punctuation and lower-cased;
+         "yes..." gives 1.0, anything else 0.0.
+
+    Unlike llama.cpp, Anthropic's API returns no log-probabilities, so there is no
+    confidence: the score is 1.0 or 0.0, and CUT (0.5) just reads it as good / weak.
+    Paid: about 1,100 input tokens and 1 output token, roughly $0.0011 a grade.
+
+    Args: question; hits (only .text is used); llm, a ChatAnthropic (or a fake in tests).
+    Returns: 1.0 if Claude answered yes, else 0.0 (an answer that isn't a clear yes
+    counts as weak, the safe side, as in gemma_grader).
+    Raises: whatever the Anthropic client raises (no key, rate limit, network); not
+    caught here: the loop catches it (spec CR-8), compare_graders.py counts it.
+    """
+    passages = "\n\n".join(f"[{i}] {hit.text}" for i, hit in enumerate(hits, start=1))
+    reply = llm.invoke(PROMPT.format(passages=passages, question=question))
+    text = reply.content.strip().strip(".!").lower()
+    return 1.0 if text.startswith("yes") else 0.0
+
+
+# Laya's question: the yes/no part of PROMPT, word for word, so all graders are asked the same thing
+LAYA_QUESTION = "Do these passages contain the information needed to answer the question?"
+
+
+def laya_grader(question: str, hits: list[Hit], url: str = LAYA_URL) -> float:
+    """G3: asks Laya, a local decision model, whether the hits can answer the question.
+
+    Laya is not a chat model: it is a classifier (a BERT-style encoder with a decision
+    head) that answers typed questions about a "state" in one forward pass, with no
+    text generated. llama.cpp serves it at /v1/systemone (TypeSafe-compatible API).
+
+    Steps:
+      1. The state is one string: "Question: <question>" then "Passages:" and the
+         hits' texts numbered [1]..[5], the same content gemma_grader sends.
+      2. One POST to <url>/v1/systemone with
+         {"state": <that string>,
+          "questions": {"good": {"type": "noul", "instructions": LAYA_QUESTION}}}.
+         "noul" is the yes/no question type.
+      3. The answer is {"answers": {"good": {"type": "noul", "noul": 0.87}}, ...}:
+         "noul" is the probability that the answer is yes (true), already in [0, 1],
+         so it is returned as is.
+
+    Laya was trained with a token budget: llama.cpp truncates long inputs to it, so
+    with 5 chunks of about 200 tokens the last passages may be cut. compare_graders.py
+    measures what that costs.
+
+    Args: question; hits (only .text is used); url, the Laya server's base address.
+    Returns: P(yes) in [0, 1], e.g. 0.87; compare with CUT.
+    Raises: requests.RequestException (server down, timeout after TIMEOUT s, non-200);
+    not caught here: the loop catches it (spec CR-8), compare_graders.py counts it.
+    """
+    passages = "\n\n".join(f"[{i}] {hit.text}" for i, hit in enumerate(hits, start=1))
+    body = {
+        "state": f"Question: {question}\n\nPassages:\n{passages}",
+        "questions": {"good": {"type": "noul", "instructions": LAYA_QUESTION}},
+    }
+    response = requests.post(f"{url}/v1/systemone", json=body, timeout=TIMEOUT)
+    response.raise_for_status()
+    return response.json()["answers"]["good"]["noul"]
