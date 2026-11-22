@@ -1,7 +1,7 @@
 """Row 9, phase 1 (CR-3): the graders on the 50 eval questions, and the one chosen.
 
 For each eval question: row 8's search (dense top 20, reranked, top 5) is run again,
-every grader scores those 5 hits, and the decision (good if score >= CUT) is compared
+every grader scores those 5 hits, and the decision (good if score >= GRADE_CUT) is compared
 with the question's label: by default the jury's (eval/ground_truth/labels.jsonl, spec
 choice 18), or with --labels proxy the older proxy from row 8's eval run. Prints one
 table row per grader and the grader chosen by the spec's rule; writes the per-question
@@ -32,8 +32,8 @@ from fastembed.rerank.cross_encoder import TextCrossEncoder
 from langchain_anthropic import ChatAnthropic
 from qdrant_client import QdrantClient
 
-from neuro_rag.config import EMBED_MODEL, LLM_MODEL, QDRANT_URL, RERANK_MODEL, RESULTS_DIR, SPARSE_MODEL
-from neuro_rag.crag.graders import CUT, gemma_grader, haiku_grader, jev_grader, laya_grader
+from neuro_rag.config import EMBED_MODEL, GRADE_CUT, LLM_MODEL, QDRANT_URL, RERANK_MODEL, RESULTS_DIR, SPARSE_MODEL
+from neuro_rag.crag.graders import gemma_grader, haiku_grader, jev_grader, laya_grader
 from neuro_rag.retrieval.search import search
 
 # row 8's eval run: the labels come from its verdicts, and its chunk_ids are checked
@@ -118,7 +118,7 @@ def grade_all(runs: list[dict], search_fn, names: list[str], labels: dict[str, s
          is recorded as same_hits (should be true: search is deterministic and the
          index hasn't changed; if not, that question's label may not fit its hits);
       2. each grader in GRADERS is called and timed (time.perf_counter); its score
-         becomes a decision, "good" if score >= CUT else "weak";
+         becomes a decision, "good" if score >= GRADE_CUT else "weak";
       3. a grader that raises (llama.cpp server down or timed out, Anthropic error)
          gets score None and decision "error" for that question, and the run goes on.
 
@@ -138,7 +138,7 @@ def grade_all(runs: list[dict], search_fn, names: list[str], labels: dict[str, s
             start = time.perf_counter()
             try:
                 score = grader(run["question"], hits)
-                decision = "good" if score >= CUT else "weak"
+                decision = "good" if score >= GRADE_CUT else "weak"
             except Exception as e:                      # any failure: counted, the run goes on
                 score, decision = None, "error"
                 print(f"  {run['id']} {name}: {e}")

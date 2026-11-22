@@ -25,6 +25,22 @@ GEMMA_URL = os.environ.get("GEMMA_URL", "http://localhost:8081")
 # row 9, grader G3: llama.cpp server for Laya (docker-compose service laya)
 LAYA_URL = os.environ.get("LAYA_URL", "http://localhost:8082")
 
+# row 9, the corrective loop (docs/specs/crag/spec.md, phase 2)
+GRADE_CUT = 0.5      # good if the grader's P(yes) >= GRADE_CUT, else weak; fixed, never fitted on the eval (choice 2)
+MAX_REWRITES = 2     # weak -> rewrite the query and retry, at most twice; still weak -> the web (choice 5)
+GRADER = "jev"       # the loop's grader: Jev via OpenRouter (choice 20); the others stay for compare_graders.py
+WEB_DOMAINS = [      # the web fallback only keeps pages from these vetted sites ("vetted web sources", roadmap)
+    "pubmed.ncbi.nlm.nih.gov",
+    "pmc.ncbi.nlm.nih.gov",
+    "www.ncbi.nlm.nih.gov",
+    "www.nature.com",
+    "www.science.org",
+    "www.cell.com",
+    "elifesciences.org",
+    "www.jneurosci.org",
+    "en.wikipedia.org",
+]
+
 LLM_MODEL = "claude-haiku-4-5"
 PRICE_IN = 1.00
 PRICE_OUT = 5.00

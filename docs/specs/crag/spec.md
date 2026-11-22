@@ -226,7 +226,7 @@ Every function is passed in, so the tests drive every branch with fakes.
 | File | Change |
 |---|---|
 | `src/neuro_rag/crag/__init__.py` | empty |
-| `src/neuro_rag/crag/graders.py` | `finetuned_grader` (only if G1 is built), `gemma_grader` (Gemma 3 1B, via the server's URL), `laya_grader`: each `(question, hits) -> float` |
+| `src/neuro_rag/crag/graders.py` | `jev_grader` (chosen, choice 20), `gemma_grader`, `laya_grader`, `haiku_grader`, plus `finetuned_grader` only if G1 is built: each `(question, hits) -> float` |
 | `src/neuro_rag/crag/loop.py` | `CragResult(answer, path, used_web)`, `run_loop`, `rewrite`, `web_hits` |
 | `src/neuro_rag/config.py` | `GRADE_CUT`, `MAX_REWRITES`, `WEB_DOMAINS`, `GRADER` |
 | `src/neuro_rag/retrieval/search.py` | `Hit` gains `url: str = ""` (default keeps every caller and test unchanged) |
@@ -239,7 +239,8 @@ Every function is passed in, so the tests drive every branch with fakes.
 | `scripts/make_grader_data.py` | G1's synthetic data: parse, chunk, questions, pairs, split |
 | `scripts/train_grader.py` | G1's training, dev check and ONNX export |
 | `tests/test_crag.py` | the loop's criteria, with fakes |
-| `docker-compose.yml`, `deploy/k8s/llm-local.yaml` | G2 and G3: llama.cpp servers for Gemma and Laya, locally and, only for the chosen one, on the VM |
+| `docker-compose.yml` | G2 and G3: llama.cpp servers for Gemma and Laya, for the comparison only (Jev chosen, choice 20: nothing local to deploy) |
+| `deploy/k8s/` Secret | gains `OPENROUTER_API_KEY` for Jev |
 
 ## Choices, accepted 2026-11-19
 
@@ -273,7 +274,7 @@ Every function is passed in, so the tests drive every branch with fakes.
    answer has web sources; `decline` questions (q20, q44, q51 to q54) still when
    not covered. Known risk: q20 (metformin) and q53 (ibuprofen) are medical, so
    NCBI or Wikipedia pages might grade well and get answered; row 10 declines
-   before the loop.
+   before the loop, and is built before CR-12 runs (choice 21).
 10. **One cut, two actions (good, weak).** The CRAG paper uses two thresholds
     and a third, "ambiguous" action (papers and web together); it is a
     candidate once phase 3's numbers are in.
@@ -350,6 +351,58 @@ Every function is passed in, so the tests drive every branch with fakes.
     override is a judgement call, made after seeing the results and recorded as
     such; the loop's eval (CR-12) is the final check. If G1 is built, it is
     compared against Jev.
+21. **Row 10's "on-topic?" check is built right after the loop, and CR-12 runs
+    with it on in both arms** (2026-11-21). Without it, an off-topic question
+    goes through every state (3 searches, 2 rewrites, the web) before "not
+    covered", and choice 9's known risk stands: q20 (metformin) and q53
+    (ibuprofen) could get NCBI or Wikipedia pages graded good and answered,
+    failing CR-12's `decline` check for a reason that isn't the loop's. Three
+    orders were weighed: loop then row 10 (CR-12 may fail on `decline`), row 10
+    first (the core waits), or both then CR-12 with the check in both arms
+    (chosen): the whole pipeline is measured, and since both arms decline the
+    same way, the difference between them is still the loop's alone. Row 10
+    keeps its own spec and criteria (to write: the check's model and question,
+    to confirm, e.g. one Jev `noul` question "Is this question about
+    neuroscience, the brain, memory or behaviour?"; the decline message; and
+    "when in doubt, never decline" for borderline questions, roadmap scope).
+    So CR-12 needs a new baseline: row 8 plus the check, without the loop
+    (about $0.30 more).
+22. **The rewrite prompt is v2's validated rewriter prompt, reused** (2026-11-21;
+    `REWRITE_PROMPT` and `LAST_QUERY` in `crag/loop.py`). v2's rewriter (row 7a)
+    was specified, tested and passed with this prompt; v3 changes three things:
+    plain text instead of a JSON schema (LangChain on Haiku 4.5, no structured
+    output), "Reply with the query only" added to the last rule, and, from the
+    second rewrite on, the last query added so Haiku writes a different one.
+    Word for word:
+
+    ```
+    You rewrite a user's question into a search query for a collection of scientific papers on the hippocampus and memory.
+
+    Rules:
+    - Write the query in English, whatever language the question is in.
+    - Replace everyday words with the terms the papers would use (for example "fear center" becomes "amygdala").
+    - Keep every specific term from the question unchanged: gene and protein names, brain regions, species, methods.
+    - Keep the question's meaning. Don't answer it, don't add claims, and don't narrow it to one hypothesis.
+    - Write one line, at most 30 words: a short question or phrase. Reply with the query only.
+
+    Examples:
+    Question: why do I keep forgetting where I put my keys?
+    Query: everyday forgetting of object locations; spatial memory retrieval and the hippocampus
+
+    Question: Est-ce que le stress abîme la mémoire ?
+    Query: effects of chronic stress on memory and hippocampal function
+
+    Question: {question}
+    ```
+
+    From the second rewrite on, appended after the question:
+    `This query was already tried and found nothing useful; write a different one: {last query}`.
+    The reply is cleaned (whitespace collapsed, a leading "Query:" and surrounding
+    quotes removed); empty or over 60 words (`MAX_WORDS`) counts as a failed
+    rewrite (None, the last query is kept, CR-8). Known limit: a non-English
+    question is translated only after its first search grades weak (one wasted
+    round), and the eval's 4 non-English questions are not run, so CR-12 doesn't
+    measure it.
 
 ## Acceptance criteria
 
@@ -386,6 +439,7 @@ Fakes: `search_fn` returns hits marked good or weak and records its queries;
 `web_fn` returns hits marked good or weak.
 
 **CR-4: good retrieval answers directly.**
+- **Given** `search_fn` returns good hits for the question (the first query).
 - **Then** `path == ["retrieve", "grade:good", "generate"]`; `rewrite_fn` and
   `web_fn` never called; `used_web` false.
 
@@ -402,6 +456,7 @@ Fakes: `search_fn` returns hits marked good or weak and records its queries;
   `web_fn` got `"clear query 2"`.
 
 **CR-7: weak everywhere is "not covered", with no answer call.**
+- **Given** weak for every query, and weak web hits.
 - **Then** the path ends `"not_covered"`, the answer is `NOT_FOUND` with no
   sources, `answer_fn` never called.
 
@@ -429,9 +484,13 @@ Fakes: `search_fn` returns hits marked good or weak and records its queries;
 ### Phase 3: the proof (real Claude, about $0.30)
 
 **CR-12: the eval with the loop beats the eval without it.**
-- **When** `python -m neuro_rag.eval.run --name crag --rerank --crag` runs.
-- **Then**, against row 8's run (`2026-11-18_2157_rerank`): correctness above
-  0.78; faithful at least 0.95; `decline` questions not covered (1.00);
+- **Given** row 10's on-topic check is built and on in both runs (choice 21).
+- **When** two eval runs: the baseline, row 8's search plus the check without
+  the loop, and the loop, `python -m neuro_rag.eval.run --name crag --rerank
+  --crag` with the check on (exact flags set when row 10 is built).
+- **Then**, against that baseline (and row 8's `2026-11-18_2157_rerank`, 0.78,
+  reported next to it): correctness above the baseline's; faithful at least
+  0.95; `decline` questions declined or not covered (1.00);
   `web_fallback` questions answered from the web; rewrites per question and
   web use reported; p95 within the latency targets. Kept only if correctness
   goes up.
@@ -440,7 +499,8 @@ Fakes: `search_fn` returns hits marked good or weak and records its queries;
 
 ## Out of scope
 
-- Declining off-topic questions before the loop (row 10).
+- The on-topic check's own design and criteria: row 10's spec (choice 21; it
+  is built before CR-12 runs).
 - The "ambiguous" action (choice 10).
 - A UI showing the path (the plan's step 9).
 - LangGraph (choice 6), unless the loop gains branches.

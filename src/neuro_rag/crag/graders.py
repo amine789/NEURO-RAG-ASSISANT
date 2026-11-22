@@ -12,7 +12,6 @@ import requests                               # HTTP calls to the local llama.cp
 from neuro_rag.config import GEMMA_URL, LAYA_URL   # localhost:8081 / :8082 locally; env vars so k8s can override them
 from neuro_rag.retrieval.search import Hit    # what search() returns: .text is the chunk
 
-CUT = 0.5            # good if P(yes) >= CUT; fixed, never fitted on the eval (spec choice 2)
 TIMEOUT = 60         # seconds per grade call; a slow CPU prompt (~1,100 tokens) can take ~10 s
 
 # The grading prompt, fixed before any result is seen (spec, "Keeping the test set clean").
@@ -53,7 +52,7 @@ def gemma_grader(question: str, hits: list[Hit], url: str = GEMMA_URL) -> float:
 
     Args: question, the user's question; hits, the retrieved chunks (only .text is
     used; normally 5); url, the llama.cpp server's base address.
-    Returns: a float in [0, 1], e.g. 0.94; compare with CUT (>= 0.5 means good).
+    Returns: a float in [0, 1], e.g. 0.94; compare with config.GRADE_CUT (>= 0.5 means good).
     0.0 if no yes/no spelling is in the top 5 (the model answered something else),
     so an unclear answer counts as weak retrieval: the safe side, it leads to a
     rewrite, not to answering from bad chunks.
@@ -94,7 +93,7 @@ def haiku_grader(question: str, hits: list[Hit], llm) -> float:
          "yes..." gives 1.0, anything else 0.0.
 
     Unlike llama.cpp, Anthropic's API returns no log-probabilities, so there is no
-    confidence: the score is 1.0 or 0.0, and CUT (0.5) just reads it as good / weak.
+    confidence: the score is 1.0 or 0.0, and GRADE_CUT (0.5) just reads it as good / weak.
     Paid: about 1,100 input tokens and 1 output token, roughly $0.0011 a grade.
 
     Args: question; hits (only .text is used); llm, a ChatAnthropic (or a fake in tests).
@@ -136,7 +135,7 @@ def laya_grader(question: str, hits: list[Hit], url: str = LAYA_URL) -> float:
     measures what that costs.
 
     Args: question; hits (only .text is used); url, the Laya server's base address.
-    Returns: P(yes) in [0, 1], e.g. 0.87; compare with CUT.
+    Returns: P(yes) in [0, 1], e.g. 0.87; compare with GRADE_CUT.
     Raises: requests.RequestException (server down, timeout after TIMEOUT s, non-200);
     not caught here: the loop catches it (spec CR-8), compare_graders.py counts it.
     """
@@ -176,7 +175,7 @@ def jev_grader(question: str, hits: list[Hit], model: str = JEV_MODEL) -> float:
     about 850 tokens (the Haiku grader costs about 25 times more).
 
     Args: question; hits (only .text is used); model, the OpenRouter model id.
-    Returns: P(yes) in [0, 1]; compare with CUT.
+    Returns: P(yes) in [0, 1]; compare with GRADE_CUT.
     Raises: KeyError if OPENROUTER_API_KEY is not set; requests.RequestException
     (network, timeout after TIMEOUT s, non-200 such as 402 when the account has no
     credit); not caught here: the loop catches it (spec CR-8), compare_graders.py
