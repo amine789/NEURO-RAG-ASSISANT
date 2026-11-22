@@ -55,7 +55,9 @@ class Answer:
 
 
 def make_llm(model: str = LLM_MODEL) -> ChatAnthropic:
-    return ChatAnthropic(model=model, max_tokens=16000)
+    # timeout: without one a call whose connection stalls waits forever (an eval hung 7+ min
+    # on q41, 2026-11-22); after 60 s it fails, is retried twice, then raises like any API error
+    return ChatAnthropic(model=model, max_tokens=16000, timeout=60, max_retries=2)
 
 
 def answer(question: str, hits: list[Hit], llm) -> Answer:

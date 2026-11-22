@@ -12,7 +12,10 @@ import requests                               # HTTP calls to the local llama.cp
 from neuro_rag.config import GEMMA_URL, LAYA_URL   # localhost:8081 / :8082 locally; env vars so k8s can override them
 from neuro_rag.retrieval.search import Hit    # what search() returns: .text is the chunk
 
-TIMEOUT = 60         # seconds per grade call; a slow CPU prompt (~1,100 tokens) can take ~10 s
+# (connect, read) seconds, as requests takes them: read 60, since a slow CPU prompt (~1,100 tokens)
+# can take ~10 s; connect 5, so a dead route fails fast and the next address is tried (an eval
+# stalled for minutes on q42 when IPv6 to openrouter.ai was down, 2026-11-22: 60 s per address)
+TIMEOUT = (5, 60)
 
 # The grading prompt, fixed before any result is seen (spec, "Keeping the test set clean").
 # {passages} is the 5 hits' texts, numbered [1]..[5]; {question} the user's question.
@@ -191,3 +194,45 @@ def jev_grader(question: str, hits: list[Hit], model: str = JEV_MODEL) -> float:
     response = requests.post(OPENROUTER_SYSTEMONE, json=body, headers=headers, timeout=TIMEOUT)
     response.raise_for_status()
     return response.json()["answers"]["good"]["noul"]
+
+
+# row 10: the on-topic check's question, fixed before any result (spec, "Row 10"); broad on
+# purpose, so borderline questions (psychology of memory, sleep, brain health) stay in
+TOPIC_QUESTION = ("Is this question about neuroscience, the brain, the nervous system, memory, "
+                  "learning, sleep, or behaviour?")
+
+
+def on_topic(question: str, model: str = JEV_MODEL) -> float:
+    """Row 10: is the question inside the assistant's scope? One Jev call; returns P(on topic).
+
+    Same API as jev_grader (OpenRouter's /api/v1/systemone, a "noul" question), but
+    only the question is sent: no passages, so it runs before any search.
+
+    Steps:
+      1. One POST to OPENROUTER_SYSTEMONE with the header "Authorization: Bearer
+         <OPENROUTER_API_KEY>" (from .env, never printed) and
+         {"model": "typesafe/jev-1.14", "state": "Question: <question>",
+          "questions": {"on_topic": {"type": "noul", "instructions": TOPIC_QUESTION}}}.
+      2. The answer is {"answers": {"on_topic": {"type": "noul", "noul": 0.97}}, ...};
+         "noul" is P(on topic), returned as is.
+    The caller declines only below config.TOPIC_CUT (0.2), so a doubtful question
+    is kept (spec, "Row 10", step 3).
+
+    Cost: about 30 input tokens, so about $0.000002 a call; about 0.3 s.
+
+    Args: question, the user's question as asked; model, the OpenRouter model id.
+    Returns: P(on topic) in [0, 1], e.g. 0.98 for "How do place cells encode
+      location?", near 0 for "What's a good recipe for sourdough bread?".
+    Raises: KeyError if OPENROUTER_API_KEY is not set; requests.RequestException
+      (network, timeout after TIMEOUT s, non-200 such as 402); not caught here: the
+      API catches it and keeps the question (OT-3).
+    """
+    body = {
+        "model": model,
+        "state": f"Question: {question}",
+        "questions": {"on_topic": {"type": "noul", "instructions": TOPIC_QUESTION}},
+    }
+    headers = {"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"}
+    response = requests.post(OPENROUTER_SYSTEMONE, json=body, headers=headers, timeout=TIMEOUT)
+    response.raise_for_status()
+    return response.json()["answers"]["on_topic"]["noul"]

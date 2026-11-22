@@ -29,6 +29,9 @@ LAYA_URL = os.environ.get("LAYA_URL", "http://localhost:8082")
 GRADE_CUT = 0.5      # good if the grader's P(yes) >= GRADE_CUT, else weak; fixed, never fitted on the eval (choice 2)
 MAX_REWRITES = 2     # weak -> rewrite the query and retry, at most twice; still weak -> the web (choice 5)
 GRADER = "jev"       # the loop's grader: Jev via OpenRouter (choice 20); the others stay for compare_graders.py
+FALLBACK = True      # row 9 trial (2026-11-22): weak everywhere -> Claude answers from the first search's hits
+                     # (it says "the papers don't cover it" if they don't) instead of "not covered" (spec choice 23)
+TOPIC_CUT = 0.2      # row 10: declined only if P(on topic) < 0.2, a confident "no"; never decline in doubt (spec, "Row 10")
 WEB_DOMAINS = [      # the web fallback only keeps pages from these vetted sites ("vetted web sources", roadmap)
     "pubmed.ncbi.nlm.nih.gov",
     "pmc.ncbi.nlm.nih.gov",

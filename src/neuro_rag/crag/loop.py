@@ -22,7 +22,10 @@ from neuro_rag.retrieval.search import Hit                    # what search and 
 log = logging.getLogger(__name__)
 
 # the rewriter's instructions: v2's validated rewriter prompt (docs/specs/correction, v2),
-# plus the last query, so a second rewrite tries other words; reply is plain text (no JSON)
+# plus the last query, so a second rewrite tries other words; reply is plain text (no JSON).
+# The last query goes BEFORE "Question:", and the prompt ends with "Query:": appended after
+# the question it read as a new instruction, and Haiku replied "I'm ready. Please provide the
+# user's question..." (found by CR-12, 2026-11-22: all 9 web searches got that reply as query)
 REWRITE_PROMPT = """You rewrite a user's question into a search query for a collection of scientific papers on the hippocampus and memory.
 
 Rules:
@@ -38,18 +41,21 @@ Query: everyday forgetting of object locations; spatial memory retrieval and the
 
 Question: Est-ce que le stress abîme la mémoire ?
 Query: effects of chronic stress on memory and hippocampal function
-
-Question: {question}{last}"""
+{last}
+Question: {question}
+Query:"""
 
 # added only from the second rewrite on, when the last query was itself a rewrite
 LAST_QUERY = """
-This query was already tried and found nothing useful; write a different one: {query}"""
+This query was already tried and found nothing useful; write a different one: {query}
+"""
 
 MAX_WORDS = 60       # a longer reply is not a query (the model answered or explained): treated as a failed rewrite
 
 FIRECRAWL_SEARCH = "https://api.firecrawl.dev/v2/search"   # one call: search + each page's text (choice 7)
 WEB_PAGES = 5        # pages asked from Firecrawl per web fallback (about 6 credits)
-WEB_TIMEOUT = 30     # seconds; scraping 5 pages is slow, and the web path's target is <= 30 s
+WEB_TIMEOUT = (5, 30)   # (connect, read) seconds: scraping 5 pages is slow (the web path's target is
+                        # <= 30 s); a dead route fails after 5 s instead of hanging (see graders.TIMEOUT)
 MAX_PAGE_CHARS = 20000   # only a page's first 20,000 characters are chunked: a long Wikipedia page
                          # would otherwise give hundreds of chunks for the CPU reranker
 
@@ -138,7 +144,8 @@ def rewrite(question: str, last_query: str, llm) -> str | None:
     Steps:
       1. Fills REWRITE_PROMPT with the question. If last_query differs from the
          question (it was itself a rewrite, i.e. this is the second rewrite), LAST_QUERY
-         is added, so Haiku is told that wording failed and writes a different one.
+         is added just before "Question:", so Haiku is told that wording failed and
+         writes a different one; the prompt ends with "Query:" for Haiku to complete.
       2. llm.invoke(prompt): one call to Haiku 4.5 through make_llm() (LangChain
          ChatAnthropic, as every v3 LLM call; with the Langfuse callback in the API).
       3. The reply text is cleaned: whitespace collapsed to single spaces, a leading
@@ -244,7 +251,7 @@ def web_hits(query: str, rerank, count, k: int = 5) -> list[Hit]:
 
 
 @observe(name="crag")
-def run_loop(question: str, search_fn, grade_fn, answer_fn, rewrite_fn, web_fn) -> CragResult:
+def run_loop(question: str, search_fn, grade_fn, answer_fn, rewrite_fn, web_fn, fallback: bool = False) -> CragResult:
     """The corrective loop for one question: answer from good hits, else rewrite and retry, then the web.
 
     Steps (spec phase 2, "The loop"):
@@ -260,7 +267,16 @@ def run_loop(question: str, search_fn, grade_fn, answer_fn, rewrite_fn, web_fn) 
          query (the cleanest wording so far); [] if the web call failed.
       3. grade() on the web hits: good → answer_fn(question, web hits), "generate",
          return (used_web True).
-      4. Weak again → "not_covered": Answer(NOT_FOUND, [], [], 0, 0), no answer call.
+      4. Weak again:
+         - fallback False (CR-7): "not_covered": Answer(NOT_FOUND, [], [], 0, 0), no answer call;
+         - fallback True (choice 23, config.FALLBACK in the API and eval): "fallback",
+           then answer_fn(question, the FIRST search's hits), "generate", used_web False.
+           Claude becomes the last judge: its system prompt makes it answer only
+           from the documents, or say in one sentence that the papers don't cover
+           it. Added because the grader rejects chunks that disprove a false
+           premise (q17, q42 in CR-12), which Claude can answer from. The first
+           search's hits: the user's own wording, the search row 8 answers from.
+           No first hits (empty search) → "not_covered" as before.
     The question answered is always the user's own; a rewrite only changes what is
     searched.
 
@@ -286,10 +302,12 @@ def run_loop(question: str, search_fn, grade_fn, answer_fn, rewrite_fn, web_fn) 
                               "rewrite", "retrieve", "grade:weak", "web", "grade:weak",
                               "not_covered"], answer.text NOT_FOUND, used_web False
     """
-    path, query = [], question
+    path, query, first_hits = [], question, None
     for attempt in range(MAX_REWRITES + 1):
         path.append("retrieve")
         hits = search_fn(query)
+        if first_hits is None:
+            first_hits = hits                                # kept for the fallback (choice 23)
         if grade(grade_fn, question, hits, path):
             return CragResult(answer_fn(question, hits), path + ["generate"], False)
         if attempt < MAX_REWRITES:
@@ -306,4 +324,6 @@ def run_loop(question: str, search_fn, grade_fn, answer_fn, rewrite_fn, web_fn) 
         hits = []
     if grade(grade_fn, question, hits, path):
         return CragResult(answer_fn(question, hits), path + ["generate"], True)
+    if fallback and first_hits:
+        return CragResult(answer_fn(question, first_hits), path + ["fallback", "generate"], False)
     return CragResult(Answer(NOT_FOUND, [], [], 0, 0), path + ["not_covered"], False)

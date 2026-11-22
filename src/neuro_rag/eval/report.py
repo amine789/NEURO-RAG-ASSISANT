@@ -26,7 +26,7 @@ def percentile(values: list[float], p: int) -> str:
 
 def row(group: str, records: list[dict]) -> str:
     ok = [r for r in records if r["error"] is None]  # failed runs count in "runs" only
-    seconds = [r["search_s"] + r["answer_s"] for r in ok]
+    seconds = [r["total_s"] if r.get("total_s") is not None else r["search_s"] + r["answer_s"] for r in ok]
     costs = [r["cost_usd"] for r in ok]
     cells = [
         group,
@@ -80,5 +80,18 @@ def build_report(records: list[dict], name: str) -> str:
         f = r["faithfulness"]
         if judged(f) and not f["faithful"]:
             lines.append(f"- {r['id']} r{r['repeat']}: \"{f['unsupported_claim']}\"")
+
+    # 5. rows 9/10 (--crag / --topic): the path each question took
+    if any(r.get("path") for r in records):
+        ok = [r for r in records if r["error"] is None and r.get("path")]
+        lines += ["", "## Loop", "",
+                  "| kind | runs | declined | rewrites (mean) | web used | not covered |", "|---|---|---|---|---|---|"]
+        for kind in sorted({r["expected_behavior"] for r in ok}):
+            group = [r for r in ok if r["expected_behavior"] == kind]
+            lines.append(f"| {kind} | {len(group)} | {sum(r['path'] == ['declined'] for r in group)} | "
+                         f"{sum(r['rewrites'] for r in group) / len(group):.2f} | {sum(r['used_web'] for r in group)} | "
+                         f"{sum(r['path'][-1] == 'not_covered' for r in group)} |")
+        lines += ["", "Paths:", ""]
+        lines += [f"- {r['id']} {r['expected_behavior']}: {' → '.join(r['path'])}" for r in ok]
 
     return "\n".join(lines) + "\n"

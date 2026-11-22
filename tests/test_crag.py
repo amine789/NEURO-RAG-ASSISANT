@@ -296,3 +296,15 @@ def test_CR10_search_failure_inside_the_loop_is_still_503():
 
     assert response.status_code == 503
     assert response.json() == {"detail": SEARCH_DOWN}
+
+
+# --- choice 23: the fallback (trial) ------------------------------------------------
+
+def test_fallback_weak_everywhere_answers_from_the_first_search():
+    search, answer = FakeSearch({}), FakeAnswer()
+
+    result = run_loop(QUESTION, search, fake_grade, answer, FakeRewrite(), FakeWeb("weak"), fallback=True)
+
+    assert result.path[-4:] == ["web", "grade:weak", "fallback", "generate"]
+    assert answer.calls == [(QUESTION, hits("weak"))]       # the first search's hits, the original question
+    assert result.used_web is False

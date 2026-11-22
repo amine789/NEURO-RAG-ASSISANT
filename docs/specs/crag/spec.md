@@ -419,12 +419,24 @@ Every function is passed in, so the tests drive every branch with fakes.
 
     Question: Est-ce que le stress abîme la mémoire ?
     Query: effects of chronic stress on memory and hippocampal function
-
+    {last}
     Question: {question}
+    Query:
     ```
 
-    From the second rewrite on, appended after the question:
-    `This query was already tried and found nothing useful; write a different one: {last query}`.
+    From the second rewrite on, `{last}` is the line
+    `This query was already tried and found nothing useful; write a different one: {last query}`,
+    between blank lines, just before `Question:`; on the first rewrite it is empty.
+    **Changed 2026-11-22, a bug found by CR-12:** the line used to be appended
+    after the question, at the very end; Haiku read it as a new instruction and
+    replied "I'm ready. Please provide the user's question you'd like me to
+    rewrite as a search query.", which became the query for the third paper
+    search and the web (all 9 web searches in CR-12's loop run, so the web found
+    PubMed's help page and graded weak). Moved before the question, with a final
+    `Query:` for Haiku to complete; checked by hand on q19 and q42, both second
+    rewrites are queries. Found through the eval, so recorded as such; a wording
+    bug, not tuning: the first rewrite's prompt is unchanged but for the final
+    `Query:`.
     The reply is cleaned (whitespace collapsed, a leading "Query:" and surrounding
     quotes removed); empty or over 60 words (`MAX_WORDS`) counts as a failed
     rewrite (None, the last query is kept, CR-8). Known limit: a non-English
@@ -533,10 +545,89 @@ Fakes: `search_fn` returns hits marked good or weak and records its queries;
 - **Why:** the plan's step 8: before/after numbers are the proof the loop is
   not decoration.
 
+## Choice 23 (kept 2026-11-23, after CR-12's 3 repeats): the fallback
+
+When every grade is weak (3 paper searches and the web), Claude answers from the
+**first search's hits** instead of the loop returning "not covered": path ends
+`"web", "grade:weak", "fallback", "generate"`, `used_web` false. Claude becomes
+the last judge: its system prompt (row 3) makes it answer only from the
+documents, or say in one sentence that the papers don't cover it. Why: CR-12
+showed the grader rejecting chunks that disprove a false premise (q17, q42, both
+labelled good by the jury), so the loop ended "not covered" where row 8 answered
+correctly. Cost: one answer call on the give-up path. Risk: Claude stretching
+weak chunks, which faithfulness measures. `run_loop(..., fallback=False)` keeps
+CR-7's behaviour (its tests unchanged); `config.FALLBACK = True` turns it on in the
+API and the eval. Found through the eval, so recorded as such; kept only if the
+loop's eval improves on the run without it (`2026-11-22_2308_crag2`, 0.71).
+
+## Row 10: the on-topic check (choice 21; choices accepted 2026-11-22)
+
+Runs **before** the loop: an off-topic question is declined at once, with no
+search, no grade, no rewrite, no web and no Claude call. Built before CR-12 and
+on in both of its arms. Every choice below is fixed before any eval result.
+
+### How it works
+
+1. `on_topic(question) -> float`, in `crag/graders.py`: one Jev call through
+   OpenRouter's `/api/v1/systemone`, as `jev_grader`, with
+   `{"model": "typesafe/jev-1.14", "state": "Question: <question>",
+   "questions": {"on_topic": {"type": "noul", "instructions": TOPIC_QUESTION}}}`;
+   returns `answers.on_topic.noul`, P(on topic).
+2. `TOPIC_QUESTION = "Is this question about neuroscience, the brain, the
+   nervous system, memory, learning, sleep, or behaviour?"`. Broad on purpose:
+   the roadmap's scope keeps borderline questions (psychology of memory, sleep,
+   brain health) in.
+3. Declined only if P(on topic) < `TOPIC_CUT = 0.2` (not 0.5). The two mistakes
+   cost differently: declining a real question loses an answer the papers may
+   have; keeping an off-topic one only costs the loop's slow path, which ends
+   "not covered" (CR-7). So only a confident "no" declines ("when in doubt,
+   never decline", roadmap scope). 0.2 is chosen here, not fitted on the eval.
+4. Declined: the answer is `DECLINED = "This assistant answers questions about
+   neuroscience, the brain and memory; this question is outside that."`, no
+   sources, `path` `["declined"]`, `used_web` false.
+5. Kept: the question goes to the loop (or, with the loop off, to search then
+   answer) and `path` is unchanged; the check shows as its own `on_topic` step
+   in the Langfuse trace, not in `path`, so CR-4 to CR-10 keep their exact paths.
+6. Failures: any error from the check (network, 402, a missing key) is logged
+   and the question is **kept**: never declined because a service is down.
+7. Wiring: `create_app(..., topic_fn=None)`; `None` = check off (row 5's tests);
+   the real pipeline uses `on_topic`. `eval/run.py` gets the same switch, so
+   CR-12's two runs both use it.
+
+Cost and latency: one Jev call per question, about 30 input tokens (no chunks),
+about $0.000002 and 0.3 s, paid by every question.
+
+### Criteria (unit, fakes, no API call; `tests/test_crag.py`)
+
+**OT-1: an off-topic question is declined before anything runs.**
+- **Given** `topic_fn` returning 0.05.
+- **Then** the answer is `DECLINED`, no sources, `path == ["declined"]`; search,
+  grade, rewrite, web and answer are never called.
+
+**OT-2: a doubtful question is kept.**
+- **Given** `topic_fn` returning 0.3 (below 0.5, above `TOPIC_CUT`).
+- **Then** the question goes through the loop as usual; `path` does not
+  contain `"declined"`.
+
+**OT-3: a failing check keeps the question.**
+- **Given** `topic_fn` raising.
+- **Then** no exception escapes, the question goes through the loop, and the
+  failure is logged.
+
+**OT-4: the check is on in the eval** (checked in CR-12).
+- **Then** all 6 `decline` questions (q20, q44, q51 to q54) are declined or end
+  "not covered", and none of the 6 `not_declined` questions (q45 to q50) nor any
+  `answer_from_corpus` question is declined. A false decline is reported by id.
+
+**OT-5: live smoke test** (by hand, about $0.00001): `on_topic` on four fixed
+questions written here, none from the eval: "What's a good recipe for sourdough
+bread?" and "How do I file my taxes?" below 0.2; "Does caffeine affect how well
+I sleep?" and "How do place cells encode location?" at 0.2 or above.
+
 ## Out of scope
 
-- The on-topic check's own design and criteria: row 10's spec (choice 21; it
-  is built before CR-12 runs).
+- Declining by other rules (rate of off-topic use, per-user blocks): only the
+  on-topic check above.
 - The "ambiguous" action (choice 10).
 - A UI showing the path (the plan's step 9).
 - LangGraph (choice 6), unless the loop gains branches.
