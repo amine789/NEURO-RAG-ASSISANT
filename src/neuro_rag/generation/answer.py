@@ -88,11 +88,11 @@ def answer(question: str, hits: list[Hit], llm) -> Answer:
         markers =[]
         for c in block.get("citations") or []:
             hit = hits[c["document_index"]]
-            key = (hit.pmcid, hit.page)
+            key = (hit.url or hit.pmcid, hit.page)   # web hits all have pmcid "web": their page url tells them apart
             if key not in numbers:
                 numbers[key] = len(numbers)+1
                 sources.append(Source(numbers[key], hit.pmcid, hit.page, hit.title, hit.citation,
-                                      PMC_URL.format(pmcid=hit.pmcid)))
+                                      hit.url or PMC_URL.format(pmcid=hit.pmcid)))   # row 9: a web source links to its page
             citations.append(Citation(numbers[key], c["document_index"], c["cited_text"]))
             if numbers[key] not in markers:
                 markers.append(numbers[key])

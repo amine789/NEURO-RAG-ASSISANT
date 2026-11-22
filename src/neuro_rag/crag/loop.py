@@ -6,11 +6,16 @@ functions are wired in by the API (app.py) and the eval (eval/run.py --crag).
 See docs/specs/crag/spec.md, phase 2.
 """
 import logging                                   # a failing rewrite, grade or web call is logged, then treated as weak (CR-8)
-from dataclasses import dataclass                # CragResult: the answer plus the path taken
+import os                                        # FIRECRAWL_API_KEY for web_hits (from .env, never printed)
+from dataclasses import dataclass, replace       # CragResult; replace() sets a web hit's reranker score
+from urllib.parse import urlparse                # a result's hostname, checked against WEB_DOMAINS (CR-9)
+
+import requests                                  # the Firecrawl search call
 
 from langfuse import observe                     # each state is a step in the Langfuse trace (CR-11), as in app.py
 
-from neuro_rag.config import GRADE_CUT, MAX_REWRITES          # 0.5 and 2 (choices 2 and 5)
+from neuro_rag.config import GRADE_CUT, MAX_REWRITES, WEB_DOMAINS   # 0.5, 2 and the 9 vetted sites
+from neuro_rag.ingest.chunk import make_units, pack_units     # web pages are cut like row 1's papers
 from neuro_rag.generation.answer import NOT_FOUND, Answer     # "not covered" reuses row 3's message and Answer shape
 from neuro_rag.retrieval.search import Hit                    # what search and the web return: .text is graded
 
@@ -41,6 +46,12 @@ LAST_QUERY = """
 This query was already tried and found nothing useful; write a different one: {query}"""
 
 MAX_WORDS = 60       # a longer reply is not a query (the model answered or explained): treated as a failed rewrite
+
+FIRECRAWL_SEARCH = "https://api.firecrawl.dev/v2/search"   # one call: search + each page's text (choice 7)
+WEB_PAGES = 5        # pages asked from Firecrawl per web fallback (about 6 credits)
+WEB_TIMEOUT = 30     # seconds; scraping 5 pages is slow, and the web path's target is <= 30 s
+MAX_PAGE_CHARS = 20000   # only a page's first 20,000 characters are chunked: a long Wikipedia page
+                         # would otherwise give hundreds of chunks for the CPU reranker
 
 
 @dataclass(frozen=True)
@@ -117,7 +128,10 @@ def grade(grade_fn, question: str, hits: list[Hit], path: list[str]) -> bool:
     return good
 
 
-@observe(name="rewrite")
+# capture_input=False: llm is an argument, and Langfuse would serialize it into the span,
+# including its Langfuse callback's secret key (found in CR-11's trace, 2026-11-22).
+# The prompt still shows in the ChatAnthropic span under this one.
+@observe(name="rewrite", capture_input=False)
 def rewrite(question: str, last_query: str, llm) -> str | None:
     """Rewrites the question into a cleaner search query with one Haiku call; None if that fails.
 
@@ -136,7 +150,9 @@ def rewrite(question: str, last_query: str, llm) -> str | None:
     Failures (CR-8): any exception from the call (network, rate limit, missing key)
     is logged and returns None; run_loop then keeps the last query and moves on.
 
-    @observe(name="rewrite"): one "rewrite" step in the Langfuse trace (CR-11).
+    @observe(name="rewrite", capture_input=False): one "rewrite" step in the Langfuse
+    trace (CR-11), with its output (the new query) but not its arguments: llm would be
+    serialized with its Langfuse callback, secret key included.
 
     Args:
       question: the user's question, as asked.
@@ -158,6 +174,73 @@ def rewrite(question: str, last_query: str, llm) -> str | None:
         log.warning("rewrite unusable, last query kept: %r", query[:100])
         return None
     return query
+
+
+# capture_input=False: rerank and count are model objects; never serialize objects into a span
+@observe(name="web", capture_input=False)
+def web_hits(query: str, rerank, count, k: int = 5) -> list[Hit]:
+    """Searches the vetted sites with Firecrawl and returns the k best web chunks as Hits; [] if that fails.
+
+    Steps (spec choice 7):
+      1. One POST to FIRECRAWL_SEARCH with header "Authorization: Bearer
+         <FIRECRAWL_API_KEY>" and body {"query": query, "limit": 5, "includeDomains":
+         WEB_DOMAINS, "scrapeOptions": {"formats": ["markdown"]}}: Firecrawl searches
+         only those sites and returns each page's text as markdown.
+      2. The results are read from data.web: e.g. [{"url": "https://www.nature.com/...",
+         "title": "...", "markdown": "# ...", ...}, ...].
+      3. Each result's hostname must be in WEB_DOMAINS, checked again here, so CR-9
+         holds even if Firecrawl's filter changes or fails; results with no markdown
+         are dropped too.
+      4. Each page's first MAX_PAGE_CHARS characters are cut like row 1's papers
+         (sentences packed into chunks of about 200 tokens, carry 50) and become
+         Hits: chunk_id "web-<result n>-c<chunk i>", pmcid "web", page 0, title the
+         page title (or the domain), citation the domain, license "", url the page.
+      5. All chunks are reranked against the query with row 8's cross-encoder and
+         the k best are returned, their score set to the reranker's.
+
+    Failures (CR-8): a missing key, a network error, a timeout, a non-200 (e.g. 402
+    when the credits run out) or an unexpected reply is logged and returns []: run_loop
+    grades [] as weak, so the answer is "not covered".
+
+    @observe(name="web", capture_input=False): one "web" step in the Langfuse trace
+    (CR-11), with its output (the hits); its arguments are not recorded, since rerank
+    and count are model objects (the query is the previous rewrite's output).
+
+    Args:
+      query: the last search query (a rewrite of the question, by then).
+      rerank: (query, texts) -> scores, row 8's TextCrossEncoder(...).rerank.
+      count: text -> token count, ingest.chunk.TokenCounter(), as row 1 chunks with.
+      k: how many chunks to return (5, as for papers).
+    Returns: up to k Hits, best first, e.g. [Hit(chunk_id="web-0-c3", pmcid="web", page=0,
+      title="Parkinson's disease", citation="en.wikipedia.org", license="", text="...",
+      score=4.2, url="https://en.wikipedia.org/wiki/Parkinson%27s_disease"), ...].
+    Cost: about 6 Firecrawl credits a call (free plan: 1,000 a month).
+    """
+    body = {"query": query, "limit": WEB_PAGES, "includeDomains": WEB_DOMAINS,
+            "scrapeOptions": {"formats": ["markdown"]}}
+    try:
+        headers = {"Authorization": f"Bearer {os.environ['FIRECRAWL_API_KEY']}"}
+        response = requests.post(FIRECRAWL_SEARCH, json=body, headers=headers, timeout=WEB_TIMEOUT)
+        response.raise_for_status()
+        results = response.json()["data"]["web"]
+    except (KeyError, ValueError, TypeError, requests.RequestException) as e:   # no key, network, non-200, odd reply
+        log.warning("web search failed, treated as weak: %s", e)
+        return []
+
+    hits = []
+    for n, result in enumerate(results):
+        url = result.get("url") or ""
+        domain = urlparse(url).hostname
+        if domain not in WEB_DOMAINS or not result.get("markdown"):   # only vetted sites, only pages with text (CR-9)
+            continue
+        texts = pack_units(make_units(result["markdown"][:MAX_PAGE_CHARS], count, 200), 200, 50)
+        hits += [Hit(f"web-{n}-c{i}", "web", 0, result.get("title") or domain, domain, "", text, 0.0, url)
+                 for i, text in enumerate(texts)]
+    if not hits:
+        return []
+    scores = rerank(query, [h.text for h in hits])
+    return sorted((replace(h, score=float(s)) for h, s in zip(hits, scores)),
+                  key=lambda h: h.score, reverse=True)[:k]
 
 
 @observe(name="crag")

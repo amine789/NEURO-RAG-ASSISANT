@@ -52,6 +52,8 @@ def test_AP1_answer_and_sources_as_json():
             "n": 1, "pmcid": "PMC1", "page": 3, "title": "Title 1", "citation": "Citation 1",
             "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC1/",
         }],
+        "path": ["retrieve", "generate"],   # row 9 choice 8: no grader given, so the loop is off
+        "used_web": False,
     }
 
 

@@ -18,6 +18,7 @@ class Hit:
     license: str
     text: str
     score: float
+    url: str = ""    # row 9: a web hit's page; "" for paper hits (their link is built from pmcid)
 
 
 def search(question: str, client: QdrantClient, embed, sparse_embed, k: int = 5,

@@ -265,8 +265,36 @@ Every function is passed in, so the tests drive every branch with fakes.
    the plan suggests, would add a dependency for the same states; it stays a
    candidate if the loop gains branches.
 7. **Web search: Firecrawl** (one call returns page text; the key is already
-   in `.env` and the Secret), or `ddgs` (free) plus fetching pages with
-   `requests` and BeautifulSoup. Firecrawl's price to be checked first.
+   in `.env` and the Secret). Price checked 2026-11-22, against Tavily, Brave
+   and PubMed E-utilities + Wikipedia: free plan 1,000 credits a month, no card;
+   search costs 2 credits per 10 results plus about 1 per page scraped, so one
+   web fallback (5 pages) is about 6 credits, about 160 fallbacks a month free.
+   Tavily was equal (1,000 free credits, domain filter, page text); Brave lost
+   its free plan in February 2026 and returns links only (pages fetched and
+   parsed by us); PubMed + Wikipedia cover only 4 of the 9 sites. Firecrawl kept:
+   already the spec's choice, its domain filter is documented, one call.
+   **How `web_hits(query)` calls it** (`crag/loop.py`):
+   1. One POST to `https://api.firecrawl.dev/v2/search`, header
+      `Authorization: Bearer <FIRECRAWL_API_KEY>`, body
+      `{"query": query, "limit": 5, "includeDomains": WEB_DOMAINS,
+        "scrapeOptions": {"formats": ["markdown"]}}`, timeout 30 s.
+   2. Results are read from `data.web` (each with `url`, `title`, `markdown`).
+   3. Each result's hostname is checked against `WEB_DOMAINS` again in our code
+      (CR-9 must hold even if the filter changes or fails); others are dropped,
+      as are results with no markdown.
+   4. Each page's first 20,000 characters (`MAX_PAGE_CHARS`: a long Wikipedia
+      page would otherwise give hundreds of chunks for the CPU reranker) are cut
+      into chunks of about 200 tokens with a carry of 50, as row 1
+      (`ingest/chunk.py`'s splitting), and become `Hit`s with
+      `pmcid="web"`, `page=0`, `title` the page title, `citation` the domain,
+      `license=""`, `url` the page, `chunk_id` "web-<n>-c<i>".
+   5. The chunks are reranked against the query with row 8's cross-encoder, and
+      the top 5 are returned (then graded like paper hits).
+   In `answer()`, sources are numbered per `(hit.url or pmcid, page)`, since every
+   web hit has pmcid "web" and page 0 (otherwise all web pages would merge into
+   one source), and a source's `url` is `hit.url` when set.
+   6. Any failure (network, timeout, non-200, a 402 when credits run out, a
+      missing key) is logged and returns `[]`: weak (CR-8).
 8. **The API response gains `path` and `used_web`;** row 5's AP-1 asserts the
    exact JSON, so **its expected JSON gains the two fields**: a change to a
    validated criterion.
@@ -472,8 +500,16 @@ Fakes: `search_fn` returns hits marked good or weak and records its queries;
   unchanged.
 
 **CR-10: the API returns the path.**
+- **Given** `create_app` with fake search, answer, grade, rewrite and web steps.
 - **Then** `POST /ask` returns `path` and `used_web` next to `answer` and
-  `sources` (AP-1 updated, choice 8).
+  `sources` (AP-1 updated, choice 8); a web answer has `used_web` true; a
+  search failure inside the loop is still row 5's 503 `SEARCH_DOWN`.
+- **How:** `create_app(search_fn, answer_fn, grade_fn, rewrite_fn, web_fn)`;
+  with no `grade_fn` (row 5's tests pass only search and answer) the loop is
+  off: search then answer, `path` `["retrieve", "generate"]`, `used_web` false,
+  which is row 8's behaviour and CR-12's baseline. The real pipeline grades with
+  `config.GRADER`. The API's trace steps are renamed `search` → `retrieve` and
+  `answer` → `generate`, the loop's state names (CR-11).
 
 **CR-11: every state is in the trace.** (by hand)
 - **Given** the server with tracing on and a casual question that takes the
