@@ -31,7 +31,8 @@ MAX_REWRITES = 2     # weak -> rewrite the query and retry, at most twice; still
 GRADER = "jev"       # the loop's grader: Jev via OpenRouter (choice 20); the others stay for compare_graders.py
 FALLBACK = True      # row 9 trial (2026-11-22): weak everywhere -> Claude answers from the first search's hits
                      # (it says "the papers don't cover it" if they don't) instead of "not covered" (spec choice 23)
-TOPIC_CUT = 0.2      # row 10: declined only if P(on topic) < 0.2, a confident "no"; never decline in doubt (spec, "Row 10")
+TOPIC_CUT = 0.5      # row 10: declined if P(on topic) < 0.5; was 0.2 until choice 24's comparison (2026-11-25):
+                     # Jev at 0.5 made 0 false declines and 1 miss on 90 jury-labelled questions (kept ones all >= 0.85)
 WEB_DOMAINS = [      # the web fallback only keeps pages from these vetted sites ("vetted web sources", roadmap)
     "pubmed.ncbi.nlm.nih.gov",
     "pmc.ncbi.nlm.nih.gov",

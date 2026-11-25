@@ -577,11 +577,15 @@ on in both of its arms. Every choice below is fixed before any eval result.
    nervous system, memory, learning, sleep, or behaviour?"`. Broad on purpose:
    the roadmap's scope keeps borderline questions (psychology of memory, sleep,
    brain health) in.
-3. Declined only if P(on topic) < `TOPIC_CUT = 0.2` (not 0.5). The two mistakes
-   cost differently: declining a real question loses an answer the papers may
-   have; keeping an off-topic one only costs the loop's slow path, which ends
-   "not covered" (CR-7). So only a confident "no" declines ("when in doubt,
-   never decline", roadmap scope). 0.2 is chosen here, not fitted on the eval.
+3. Declined if P(on topic) < `TOPIC_CUT = 0.5`. **Changed 2026-11-25 by choice
+   24's comparison** (was 0.2). The two mistakes cost differently: declining a
+   real question loses an answer the papers may have; keeping an off-topic one
+   only costs the loop's slow path, which ends "not covered" (CR-7). So 0.2 was
+   first chosen, a confident "no" only ("when in doubt, never decline"). Measured
+   on 90 jury-labelled questions outside the eval, Jev makes no false decline at
+   0.2, 0.3 or 0.5 (every kept question scores at least 0.85), and 0.5 misses one
+   off-topic question fewer; so the cut is 0.5, chosen on that separate set, not
+   on the eval.
 4. Declined: the answer is `DECLINED = "This assistant answers questions about
    neuroscience, the brain and memory; this question is outside that."`, no
    sources, `path` `["declined"]`, `used_web` false.
@@ -596,6 +600,34 @@ on in both of its arms. Every choice below is fixed before any eval result.
 
 Cost and latency: one Jev call per question, about 30 input tokens (no chunks),
 about $0.000002 and 0.3 s, paid by every question.
+
+### Choice 24 (2026-11-25): the on-topic model is compared, not assumed
+
+Gap found after rows 9 and 10 were validated: Jev was chosen for the check with no
+comparison and the 0.2 cut was a judgement, while the grader had been compared on
+jury labels (choices 18 to 20). CR-12 showed only that Jev declined the eval's 6
+off-topic questions and none of the other 44, too few to choose a model.
+
+- **Questions:** 90 in `eval/topic/questions.jsonl`, none from the eval: 30 on-topic
+  neuroscience, 30 borderline everyday questions (sleep, memory, attention, habits),
+  30 off-topic, half of them hard near-misses (medicine outside the brain such as
+  statins or insulin; "memory leak", "RAM", "neural network" in the computing sense).
+  Written by Claude; the file holds only ids and questions, shuffled, with no
+  group recorded (the user's call: "no hint, let the judges cook").
+- **Labels: a three-model jury, option A** (`scripts/label_topic.py`): the grader
+  jury's three judges (choice 18), none from Anthropic, each answers "keep" or
+  "decline" for an assistant whose scope is stated in the prompt; the majority is
+  the label; split (2-1) votes are listed for a human look. So the labels don't
+  rest on the writer, and Haiku
+  (a candidate, and a Claude model) is not graded against Claude's own idea of scope.
+- **Candidates** (`scripts/compare_topic.py`), all asked `TOPIC_QUESTION`: Jev,
+  Haiku 4.5 (yes/no, so the same decision at every cut), Laya and Gemma 3 1B
+  (local). **Cuts:** 0.2, 0.3, 0.5.
+- **Rule, fixed before any result:** fewest false declines (a kept question
+  refused: the costly mistake); then fewest missed off-topic; then lower median
+  latency; then lower cost. A failing call counts as keep.
+- If another model or cut wins, row 10 changes to it and CR-12's on-topic part
+  (OT-4) is re-checked.
 
 ### Criteria (unit, fakes, no API call; `tests/test_crag.py`)
 
